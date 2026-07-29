@@ -27,6 +27,7 @@ import csv
 import io
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import date
 
 import requests
 
@@ -62,6 +63,8 @@ class CategoryStats:
     monthly_registrations: dict[str, int] = field(default_factory=dict)  # "2026-07" -> 신규등록 건수(전체 이력)
     by_sigungu_monthly: dict[str, dict[str, int]] = field(default_factory=dict)
     # "서울특별시 마포구" -> {"2026-07": 12, ...} — 구별 월간 신규등록(현재 상태 무관, 전체 이력)
+    cohort_survival: dict[str, dict[str, float]] = field(default_factory=dict)
+    # "2021" -> {"0": 1.0, "1": 0.83, ...} — 등록연도 코호트별 생존율(나이 t년차, life-table)
 
     def district_rank(self, sido_prefix: str, top_n: int | None = None) -> list[tuple[str, int]]:
         """sido_prefix(예: '서울특별시')로 시작하는 구만 뽑아 내림차순."""
@@ -149,6 +152,60 @@ def license_ym(row: dict) -> str | None:
     return d[:7] if len(d) >= 7 and d[4] == "-" else None
 
 
+def _parse_full_date(s: str | None) -> date | None:
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s.strip()[:10])
+    except ValueError:
+        return None
+
+
+def cohort_survival(deduped_rows: list[dict], min_cohort_size: int = 30,
+                     max_years: int = 8, today: date | None = None) -> dict[str, dict[str, float]]:
+    """
+    등록연도 코호트별 생존곡선(life-table 방식) — "2년차까지 몇 %가 살아남았나".
+
+    폐업 건만 보고 낸 존속기간(예: 중앙값 2.1년)은 아직 영업 중인 곳이 통째로
+    빠진 생존편향 수치라 투자 판단에 못 쓴다. 여기서는 아직 안 닫힌 곳을
+    우변절단(right-censoring)으로 반영한다 — 그 나이까지 살아있었다는 사실은
+    쓰되, "언제 닫힐지"는 모른다고 취급해 분모에서만 카운트하고 분자(폐업)에는
+    안 넣는다.
+
+    duration은 연 단위로 내림(완주한 해)한다 — 정확한 날짜 단위 카플란-마이어보다
+    거칠지만, 14,000건대 표본에 월간 리포트용 선그래프로는 이 정도 해상도면
+    충분하고 계산이 훨씬 단순해진다. 표본이 min_cohort_size 미만인 코호트는
+    계단이 튀므로 뺀다.
+    """
+    today = today or date.today()
+    cohorts: dict[int, list[tuple[int, bool]]] = {}  # 등록연도 -> [(생존 연수, 폐업여부), ...]
+    for r in deduped_rows:
+        reg = _parse_full_date(r.get("인허가일자"))
+        if not reg:
+            continue
+        is_closed = classify(r.get("영업상태명", "")) == "closed"
+        end = _parse_full_date(r.get("폐업일자")) if is_closed else None
+        end = end or today
+        duration = max(0, int((end - reg).days / 365.25))
+        cohorts.setdefault(reg.year, []).append((duration, is_closed))
+
+    out: dict[str, dict[str, float]] = {}
+    for year, obs in cohorts.items():
+        if len(obs) < min_cohort_size:
+            continue
+        survival = 1.0
+        curve = {"0": 1.0}
+        for t in range(max_years):
+            at_risk = sum(1 for d, _ in obs if d >= t)
+            if at_risk == 0:
+                break
+            deaths = sum(1 for d, closed in obs if closed and d == t)
+            survival *= 1 - deaths / at_risk
+            curve[str(t + 1)] = round(survival, 4)
+        out[str(year)] = curve
+    return out
+
+
 def download_csv(slug: str) -> str:
     session = requests.Session()
     info = INFO_URL.format(slug=slug)
@@ -206,6 +263,7 @@ def aggregate(slug: str, rows: list[dict]) -> CategoryStats:
         by_sigungu=dict(by_sigungu),
         monthly_registrations=dict(monthly),
         by_sigungu_monthly={k: dict(v) for k, v in by_sigungu_monthly.items()},
+        cohort_survival=cohort_survival(deduped),
     )
 
 

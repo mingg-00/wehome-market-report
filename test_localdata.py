@@ -121,6 +121,38 @@ def test_dedup_skips_rows_without_address():
     assert ld.dedup(rows) == []
 
 
+def test_cohort_survival_life_table_with_right_censoring():
+    """
+    2020년 코호트 6건, 기준일 2023-01-01로 고정:
+      - 2건: 2020-06-01 폐업 (0년차에 사망)
+      - 1건: 2021-06-01 폐업 (1년차에 사망)
+      - 3건: 아직 영업중 (기준일까지 3년 생존 관찰, 우변절단)
+    손으로 계산한 생존율과 대조 — 아직 안 닫힌 3건이 "폐업"으로 잘못 카운트되면
+    분자가 커져 생존율이 실제보다 낮게 나온다(생존편향 반대 방향의 버그).
+    """
+    from datetime import date
+    rows = [
+        {"인허가일자": "2020-01-01", "폐업일자": "2020-06-01", "영업상태명": "폐업"},
+        {"인허가일자": "2020-01-01", "폐업일자": "2020-06-01", "영업상태명": "폐업"},
+        {"인허가일자": "2020-01-01", "폐업일자": "2021-06-01", "영업상태명": "폐업"},
+        {"인허가일자": "2020-01-01", "영업상태명": "영업중"},
+        {"인허가일자": "2020-01-01", "영업상태명": "영업중"},
+        {"인허가일자": "2020-01-01", "영업상태명": "영업중"},
+    ]
+    curve = ld.cohort_survival(rows, min_cohort_size=1, today=date(2023, 1, 1))["2020"]
+    assert curve["0"] == 1.0
+    assert curve["1"] == 0.6667   # 6명 중 2명 0년차 사망 -> 4/6
+    assert curve["2"] == 0.5      # 남은 4명 중 1명 1년차 사망 -> 0.6667*3/4
+    assert curve["3"] == 0.5      # 2년차 사망 없음, 생존율 유지
+    assert curve["4"] == 0.5      # 3명 전원 censored(영업중) — 사망으로 안 잡혀야 함
+    assert "5" not in curve       # 기준일까지 4년차에 도달한 표본이 없어 곡선이 여기서 끊김
+
+
+def test_cohort_survival_excludes_small_cohorts():
+    rows = [{"인허가일자": "2020-01-01", "영업상태명": "영업중"}] * 5
+    assert ld.cohort_survival(rows, min_cohort_size=30) == {}
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

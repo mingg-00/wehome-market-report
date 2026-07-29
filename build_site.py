@@ -192,6 +192,57 @@ def chart_registrations_trend(monthly: list[tuple[str, int]]) -> str:
     return viz.to_png(fig)
 
 
+def chart_cohort_survival(cohort_survival: dict[str, dict[str, float]]) -> str:
+    """
+    등록연도 코호트별 생존곡선. localdata.CategoryStats.cohort_survival은 이미
+    우변절단(right-censoring)을 반영한 값이다 — 아직 폐업 안 한 곳을 폐업으로
+    안 세고, 그 나이까지 살아있었다는 사실만 분모에 반영한다. "폐업 건만 보고 낸
+    존속기간 중앙값"(생존편향)과 달리 실제 생존율을 보여주는 게 이 차트의 핵심.
+
+    코호트가 12~15개라 각각 범례를 달면 못 읽는다 — 등록연도 오래된 순(NAVY)
+    ->최근(MINT) 그러데이션으로 색만 바꾸고, 선 끝에 연도를 직접 라벨링해서
+    범례 상자 없이도 어떤 선이 몇 년도인지 읽히게 한다.
+    """
+    import matplotlib.pyplot as plt
+    years = sorted(cohort_survival, key=int)
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    if not years:
+        ax.text(0.5, 0.5, "데이터 없음", ha="center", va="center", transform=ax.transAxes)
+    n = len(years)
+    end_points = []  # (year, x_end, y_true, color) — 선 다 그린 뒤 한 번에 라벨 배치(겹침 방지)
+    for i, year in enumerate(years):
+        curve = cohort_survival[year]
+        ts = sorted((int(t) for t in curve), key=int)
+        vals = [curve[str(t)] * 100 for t in ts]
+        color = viz.NAVY if n == 1 else _lerp_color(viz.NAVY, viz.MINT, i / (n - 1))
+        ax.plot(ts, vals, color=color, linewidth=1.6)
+        end_points.append((year, ts[-1], vals[-1], color))
+
+    # 오른쪽 끝에서 값이 비슷한 코호트가 여럿이면 라벨이 겹친다(실측 확인) — y값 오름차순으로
+    # 훑으면서 이전 라벨과 min_gap(percentage point) 미만이면 그만큼 밀어 올린다. 원래 값(y_true)과
+    # 라벨 위치(y_label)가 밀렸으면 가는 선으로 이어줘서 어떤 선인지 헷갈리지 않게 한다.
+    min_gap = 3.2
+    end_points.sort(key=lambda p: p[2])
+    y_label = None
+    for year, x, y_true, color in end_points:
+        y_label = y_true if y_label is None else max(y_label + min_gap, y_true)
+        if abs(y_label - y_true) > 0.5:
+            ax.plot([x, x + 0.15], [y_true, y_label], color=color, linewidth=.6, alpha=.6)
+        ax.annotate(year, (x + 0.15, y_label), textcoords="offset points", xytext=(2, 0),
+                     fontsize=7.5, color=color, va="center")
+
+    ax.set_title("등록연도 코호트별 생존곡선 (우변절단 반영)", fontsize=13, weight="bold", pad=14)
+    ax.set_xlabel("등록 후 경과연수", fontsize=9)
+    ax.set_ylabel("생존율(%)", fontsize=9)
+    ax.set_ylim(0, 105)
+    if end_points:
+        ax.set_xlim(right=max(p[1] for p in end_points) + 1.3)  # 연도 라벨 들어갈 여백
+    ax.grid(axis="y", alpha=.25)
+    viz.strip_spines(ax)
+    fig.tight_layout()
+    return viz.to_png(fig)
+
+
 def chart_district_rank(flagship: localdata.CategoryStats, sido: str = SEOUL, top_n: int = 15) -> str:
     import matplotlib.pyplot as plt
     top = flagship.district_rank(sido, top_n)[::-1]
@@ -204,6 +255,61 @@ def chart_district_rank(flagship: localdata.CategoryStats, sido: str = SEOUL, to
     ax.set_title(f"서울 자치구별 영업중 호스트 TOP {top_n}", fontsize=13, weight="bold", pad=14)
     ax.grid(axis="x", alpha=.25)
     viz.strip_spines(ax, keep=())
+    fig.tight_layout()
+    return viz.to_png(fig)
+
+
+def chart_saturation_scatter(sat: list[tuple[str, int, int, float]]) -> str:
+    """
+    포화 신호를 표 대신 산점도로 — x=밀도(영업중, 로그스케일)·y=최근 증감률로 4분면을
+    만들면 "우리 구가 어느 칸인가"가 표를 스캔하는 것보다 한눈에 들어온다.
+    표(saturation_signal 상위 8개)와 달리 min_active를 넘는 구를 전부 그린다 —
+    산점도는 점이 많아도 읽는 비용이 표보다 안 늘어난다.
+
+    사분면 경계: x는 표시된 구들의 밀도 중앙값, y는 증감률 0%(성장/위축 갈림).
+    growth가 inf인 경우(직전 6개월 신규가 0건이라 나눗셈이 안 되는 경우)는
+    그래프가 깨지므로 빼고 각주로 몇 곳 빠졌는지만 밝힌다.
+    """
+    import statistics
+
+    import matplotlib.pyplot as plt
+
+    finite = [(gu, active, g) for gu, active, _, g in sat if g != float("inf")]
+    skipped = len(sat) - len(finite)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    if not finite:
+        ax.text(0.5, 0.5, "데이터 없음", ha="center", va="center", transform=ax.transAxes)
+        fig.tight_layout()
+        return viz.to_png(fig)
+
+    actives = [a for _, a, _ in finite]
+    growths = [g * 100 for _, _, g in finite]
+    x_mid = statistics.median(actives)
+
+    ax.scatter(actives, growths, s=46, color=viz.NAVY, alpha=.85, zorder=3)
+    for gu, active, g in finite:
+        ax.annotate(gu.removesuffix("구"), (active, g * 100), fontsize=7.5,
+                    textcoords="offset points", xytext=(5, 4), color=viz.NAVY)
+
+    ax.axhline(0, color=viz.GREY, linewidth=1, zorder=1)
+    ax.axvline(x_mid, color=viz.GREY, linewidth=1, zorder=1)
+    ax.set_xscale("log")
+    corner = dict(fontsize=10, weight="bold", color=viz.GREY, alpha=.85)
+    y0, y1 = ax.get_ylim()
+    x0, x1 = ax.get_xlim()
+    ax.text(x1 * .75, y1 * .92, "성장", ha="center", **corner)
+    ax.text(x1 * .75, y0 * .92, "포화", ha="center", **corner)
+    ax.text(x0 * 1.4, y1 * .92, "기회", ha="center", **corner)
+    ax.text(x0 * 1.4, y0 * .92, "침체", ha="center", **corner)
+
+    title = "포화 신호 산점도 — 밀도 vs 최근 6개월 증감률"
+    if skipped:
+        title += f" ({skipped}개 구는 직전 6개월 신규 0건이라 증감률 계산 불가로 제외)"
+    ax.set_title(title, fontsize=12, weight="bold", pad=14)
+    ax.set_xlabel("영업중 호스트 수(로그스케일)", fontsize=9)
+    ax.set_ylabel("직전 6개월 대비 증감률(%)", fontsize=9)
+    ax.grid(alpha=.2)
+    viz.strip_spines(ax)
     fig.tight_layout()
     return viz.to_png(fig)
 
@@ -734,6 +840,12 @@ def render_dashboard(d: SiteData) -> str:
 <div class="h2sub">최근 24개월 월별 신규등록(인허가일자 기준, 현재 상태 무관). 최신월 강조.</div>
 <img class="chart" src="data:image/png;base64,{chart_registrations_trend(c.flagship.recent_months(24))}">
 
+<h2>등록연도별 생존곡선</h2>
+<div class="h2sub">아직 폐업하지 않은 곳을 우변절단으로 반영한 실제 생존율 — "폐업 건만 본
+존속기간"과 달리 생존편향이 없다. 짙은 남색일수록 오래된 등록연도, 민트에 가까울수록
+최근 연도(선 끝에 연도 표기). 표본 30건 미만인 코호트는 뺐다.</div>
+<img class="chart" src="data:image/png;base64,{chart_cohort_survival(c.flagship.cohort_survival)}">
+
 <h2>전국 시도별 현황</h2>
 <div class="h2sub">서울에 국한하지 않은 전국 17개 시도 영업중 호스트 순위. 진할수록 밀도가 높은 지역 —
 지도에 마우스를 올리면 시도별 수치가 뜬다.</div>
@@ -745,8 +857,10 @@ def render_dashboard(d: SiteData) -> str:
 <img class="chart" src="data:image/png;base64,{chart_district_rank(c.flagship)}">
 
 <h2>포화 신호</h2>
-<div class="h2sub">밀도 상위 구 중 최근 6개월 신규등록이 직전 6개월 대비 얼마나 늘거나 줄었는지.
-음수가 클수록 "이미 크고 + 유입이 식는" 신호 — 밀도 순위만으로는 안 보이는 지표.</div>
+<div class="h2sub">밀도(영업중 호스트 수)와 최근 6개월 증감률을 산점도 4분면으로 — 오른쪽 위(성장)는
+이미 크면서 더 크는 중, 오른쪽 아래(포화)는 크지만 유입이 식는 중, 왼쪽 위(기회)는 아직
+작지만 빠르게 크는 중. 아래 표는 상위 8개 구의 정확한 수치.</div>
+<img class="chart" src="data:image/png;base64,{chart_saturation_scatter(c.flagship.saturation_signal(SEOUL))}">
 <div class="scroll"><table><tr><th>구</th><th style="text-align:right">영업중</th>
 <th style="text-align:right">최근 6개월 신규</th><th style="text-align:right">직전 6개월 대비</th></tr>{sat_rows}</table></div>
 
