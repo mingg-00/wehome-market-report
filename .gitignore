@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+site/
+subscribers.json
+subscribers.db
+.env
