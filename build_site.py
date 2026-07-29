@@ -28,7 +28,9 @@ k-stay API 를 안 쓰게 되면서 잃은 것 하나: k-stay가 이미 발행�
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import statistics
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
@@ -40,6 +42,7 @@ import localdata
 import news
 import regulation
 import safestay
+import tourism_demand
 import viz
 import yanolja_perf
 from kstay import fetch_inbound  # 인바운드만 — 등록 통계는 더 이상 kstay API에 안 기댐
@@ -49,6 +52,7 @@ load_dotenv()
 ROOT = Path(__file__).parent
 SITE = ROOT / "site"
 HISTORY = ROOT / "history"
+ASSETS = ROOT / "assets"
 TITLE = "공유숙박 마켓리포트"
 # 구독 폼이 실제로 값을 보내는 곳 — .env 에서 읽는다. ngrok 무료 플랜은 터널을
 # 새로 열 때마다 URL이 바뀌므로, 코드를 고치는 대신 .env의 SUBSCRIBE_ENDPOINT만
@@ -125,6 +129,7 @@ class SiteData:
     news_items: list[regulation.Item]
     reconcile_note: str
     perf: dict[str, dict]
+    demand: dict[str, dict]
 
 
 def gather() -> SiteData:
@@ -140,6 +145,9 @@ def gather() -> SiteData:
     print("야놀자리서치 실적 지표(ADR·OCC·RevPAR) 수집 중...")
     perf = yanolja_perf.collect()
     print(f"  {len(perf)}/{len(yanolja_perf.REGIONS)}개 권역")
+    print("한국관광 데이터랩 관광 수요 지표 수집 중...")
+    demand = tourism_demand.collect()
+    print(f"  {len(demand)}/{len(tourism_demand.METRICS)}개 지표")
     flagship_active = categories[localdata.FLAGSHIP].active
     ss_active = ss.operating(ss.months[0])
     gap = ss_active - flagship_active
@@ -160,6 +168,7 @@ def gather() -> SiteData:
         news_items=all_news,
         reconcile_note=note,
         perf=perf,
+        demand=demand,
     )
 
 
@@ -197,6 +206,111 @@ def chart_district_rank(flagship: localdata.CategoryStats, sido: str = SEOUL, to
     viz.strip_spines(ax, keep=())
     fig.tight_layout()
     return viz.to_png(fig)
+
+
+# localdata.py의 시도명(주소 파싱 결과) -> assets/kr_sido.svg의 path id(ISO 3166-2:KR).
+# simplemaps.com 무료 SVG(17개 시도, id=KR11~KR50, name=영문명) — 라이선스: 상업·개인
+# 무료 이용 가능, 재배포 전용 컬렉션화만 금지(https://simplemaps.com/resources/svg-license).
+# "전남광주통합특별시"는 원본 데이터의 광주+전남 통합 표기라 두 지역(KR29·KR46)에
+# 동일 값을 반영한다 — 실제 행정구역이 갈리면 이 매핑도 갈라야 한다.
+SIDO_TO_KR_CODE: dict[str, list[str]] = {
+    "서울특별시": ["KR11"], "부산광역시": ["KR26"], "대구광역시": ["KR27"],
+    "인천광역시": ["KR28"], "광주광역시": ["KR29"], "대전광역시": ["KR30"],
+    "울산광역시": ["KR31"], "경기도": ["KR41"], "강원특별자치도": ["KR42"],
+    "충청북도": ["KR43"], "충청남도": ["KR44"], "전북특별자치도": ["KR45"],
+    "전라남도": ["KR46"], "경상북도": ["KR47"], "경상남도": ["KR48"],
+    "제주특별자치도": ["KR49"], "세종특별자치시": ["KR50"],
+    "전남광주통합특별시": ["KR29", "KR46"],
+}
+
+
+def _lerp_color(c1: str, c2: str, t: float) -> str:
+    t = max(0.0, min(1.0, t))
+    r1, g1, b1 = int(c1[1:3], 16), int(c1[3:5], 16), int(c1[5:7], 16)
+    r2, g2, b2 = int(c2[1:3], 16), int(c2[3:5], 16), int(c2[5:7], 16)
+    r, g, b = (round(r1 + (r2 - r1) * t), round(g1 + (g2 - g1) * t), round(b1 + (b2 - b1) * t))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _svg_choropleth(values: dict[str, float], titles: dict[str, str],
+                     lo_color: str = "#E3ECE9", hi_color: str = viz.NAVY,
+                     log_scale: bool = True) -> str:
+    """
+    assets/kr_sido.svg(simplemaps.com 무료 시도 SVG)를 읽어 values에 있는 코드만
+    lo_color~hi_color 그러데이션으로 칠하고 titles를 호버 툴팁으로 얹는다. 두 지도
+    (render_sido_map, render_revpar_map)가 공유하는 렌더러 — 값의 의미(호스트 수·
+    RevPAR)만 다르고 "SVG 읽어서 칠하기"는 같은 로직이라 여기 하나로 모았다.
+    values에 없는 코드는 회색 "데이터 없음"으로 조용히 넘어간다.
+    """
+    present = list(values.values())
+    if log_scale:
+        present = [v for v in present if v > 0]
+    lo, hi = (math.log1p(min(present)), math.log1p(max(present))) if (log_scale and present) \
+        else (min(present), max(present)) if present else (0, 0)
+
+    def repl(m: re.Match) -> str:
+        code, eng_name = m.group("id"), m.group("name")
+        if code in values:
+            v = values[code]
+            scaled = math.log1p(v) if log_scale else v
+            t = (scaled - lo) / (hi - lo) if hi > lo else 1.0
+            fill = _lerp_color(lo_color, hi_color, t)
+            title = titles.get(code, f"{eng_name} {v:,.0f}")
+        else:
+            fill = "#E6E9EE"
+            title = titles.get(code, f"{eng_name} 데이터 없음")
+        return (f'<path d="{m.group("d")}" id="{code}" name="{eng_name}" '
+                f'fill="{fill}"><title>{title}</title></path>')
+
+    svg = (ASSETS / "kr_sido.svg").read_text(encoding="utf-8")
+    return re.sub(
+        r'<path\s+d="(?P<d>[^"]*)"\s+id="(?P<id>KR\d+)"\s+name="(?P<name>[^"]+)">\s*</path>',
+        repl, svg)
+
+
+def render_sido_map(flagship: localdata.CategoryStats) -> str:
+    """
+    전국 시도별 영업중 호스트 수를 단계구분도(choropleth)로 — chart_sido_rank()의
+    막대그래프와 달리 지리적 분포(수도권 집중 등)가 한눈에 들어온다. 둘은 서로
+    대체가 아니라 보완 관계라 대시보드에 같이 둔다(지도=어디, 막대=얼마나·정확한
+    순위). 매핑에 없는 시도명이 나오면(행정구역 개편 등) 조용히 빠뜨리는 대신
+    경고를 남긴다.
+    """
+    ranks = dict(flagship.sido_rank())
+    values, titles = {}, {}
+    for sido, count in ranks.items():
+        codes = SIDO_TO_KR_CODE.get(sido)
+        if not codes:
+            print(f"  ⚠️ 지도 매핑 없음: {sido} — SIDO_TO_KR_CODE 갱신 필요")
+            continue
+        for code in codes:
+            values[code] = count
+            titles[code] = f"{sido} 영업중 {count:,}곳"
+    return _svg_choropleth(values, titles)
+
+
+def render_revpar_map(perf: dict[str, dict]) -> str:
+    """
+    야놀자리서치 RevPAR(객실당매출)을 지도로. 숙박업 실적 지표 표는 ADR·OCC·RevPAR
+    3개 값을 다 보여주지만 지도는 색 하나로 값 하나만 표현할 수 있어, 셋 중 가장
+    종합적인(가격×점유율) RevPAR만 고른다 — 나머지는 표에서 봐야 한다. 표=정확한
+    3개 수치, 지도=어느 권역이 실속 있는지 한눈에. "전국" 합계는 특정 지역이
+    아니라 지도에 칠할 수 없어 뺀다. 대구·대전·인천·울산·세종은 야놀자리서치
+    권역 자체가 없어(yanolja_perf.SIDO_TO_REGION 참고) 데이터 없음으로 남는다.
+    """
+    code_to_region: dict[str, str] = {}
+    for sido, region in yanolja_perf.SIDO_TO_REGION.items():
+        for code in SIDO_TO_KR_CODE.get(sido, []):
+            code_to_region[code] = region
+
+    values, titles = {}, {}
+    for code, region in code_to_region.items():
+        stats = perf.get(region)
+        if not stats:
+            continue
+        values[code] = stats["revpar"]
+        titles[code] = f"{region} 권역 RevPAR {stats['revpar']:,.0f}원"
+    return _svg_choropleth(values, titles, log_scale=False)
 
 
 def chart_sido_rank(flagship: localdata.CategoryStats, top_n: int = 17) -> str:
@@ -254,8 +368,34 @@ def perf_table_html(perf: dict[str, dict]) -> str:
 <div class="h2sub">공유숙박 부문 평균 객단가·객실 점유율·객실당매출 — {(ym[:4] + '-' + ym[4:]) if ym else '데이터 없음'} 기준,
 객실당매출 내림차순. 출처: 야놀자리서치 국내 숙박업 실적 지표(NOL·AirDNA·산하정보기술 블렌딩,
 광역 권역 평균 — 개별 매물 수익이 아님). <a href="estimate.html">지역별 시장 지표에서 지역 선택해 보기 →</a></div>
+<div class="mapwrap">{render_revpar_map(perf)}</div>
+<div class="sub" style="text-align:center;margin-top:-4px">진할수록 객실당매출(RevPAR)이 높은 권역 · 회색은 야놀자리서치 커버리지 밖</div>
 <div class="scroll"><table><tr><th>권역</th><th style="text-align:right">평균 객단가</th>
 <th style="text-align:right">객실 점유율</th><th style="text-align:right">객실당매출</th></tr>{rows}</table></div>"""
+
+
+def demand_kpis_html(demand: dict[str, dict]) -> str:
+    """
+    한국관광 데이터랩(KTO) 관광 수요 지표 5종 — 대시보드와 월간 리포트 상세가
+    같은 마크업을 쓴다(perf_table_html과 동일한 이유로 중복 방지). 숙박 여행객수를
+    맨 앞에 둔다 — 공급(등록 호스트)·가격(야놀자리서치)은 이미 있고 이게 수요
+    규모를 채워주는 지표라 이 리포트에서 제일 관련이 깊다.
+    """
+    if not demand:
+        return ""
+    order = ["54", "12", "13", "52", "53"]
+    ym = next(iter(demand.values()))["ym"]
+    cards = "".join(
+        f'<div class="kpi"><div class="l">{demand[k]["name"]}</div>'
+        f'<div class="v" style="font-size:20px">{demand[k]["display"]}</div>'
+        f'<div class="d {"up" if demand[k]["rate"] >= 0 else "down"}">{demand[k]["rate"]:+.1f}% 전년동기대비</div></div>'
+        for k in order if k in demand
+    )
+    return f"""
+<h2>관광 수요 지표</h2>
+<div class="h2sub">{ym} 기준 연간누적 · 전년 동기 대비. 출처: 한국관광 데이터랩(한국관광공사).
+등록 호스트 수(공급)·야놀자리서치 실적 지표(가격)와 달리 이건 수요 쪽 규모를 보여준다.</div>
+<div class="kpis">{cards}</div>"""
 
 
 def chart_inbound(annual_totals: list[dict]) -> str:
@@ -306,6 +446,10 @@ h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--
 .kpi .d{font-size:12px;font-weight:700;margin-top:2px}
 .kpi .d.up{color:var(--mint)} .kpi .d.down{color:#E2574C}
 img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
+.mapwrap{max-width:480px;margin:12px auto}
+.mapwrap svg{width:100%;height:auto;display:block}
+.mapwrap path{transition:opacity .15s;cursor:default}
+.mapwrap path:hover{opacity:.72}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
@@ -591,7 +735,9 @@ def render_dashboard(d: SiteData) -> str:
 <img class="chart" src="data:image/png;base64,{chart_registrations_trend(c.flagship.recent_months(24))}">
 
 <h2>전국 시도별 현황</h2>
-<div class="h2sub">서울에 국한하지 않은 전국 17개 시도 영업중 호스트 순위.</div>
+<div class="h2sub">서울에 국한하지 않은 전국 17개 시도 영업중 호스트 순위. 진할수록 밀도가 높은 지역 —
+지도에 마우스를 올리면 시도별 수치가 뜬다.</div>
+<div class="mapwrap">{render_sido_map(c.flagship)}</div>
 <img class="chart" src="data:image/png;base64,{chart_sido_rank(c.flagship)}">
 
 <h2>서울 자치구 순위</h2>
@@ -607,6 +753,8 @@ def render_dashboard(d: SiteData) -> str:
 <h2>카테고리 비교</h2>
 <div class="h2sub">공유숙박 5종 등록 규모. 농어촌민박이 절대 우위지만 도시 시장은 별개 축.</div>
 <img class="chart" src="data:image/png;base64,{chart_category_compare(c.categories)}">
+
+{demand_kpis_html(d.demand)}
 
 {perf_table_html(d.perf)}
 
@@ -710,10 +858,10 @@ def render_news(d: SiteData) -> str:
 
 def render_competitors(d: SiteData) -> str:
     """
-    에어비앤비·아고다·부킹닷컴·클룩 4개 경쟁 OTA 뉴스룸을 화면 4등분(2x2)으로
-    나란히 놓는다. news.html의 카드형(이미지 위·텍스트 아래)과 달리 헤드라인이
-    굵고 크게, 썸네일은 오른쪽 작은 정사각형으로 붙는 가로 리스트 포맷 — 소스당
-    5건.
+    위홈(자사) + 에어비앤비·아고다·부킹닷컴·클룩 4개 글로벌 OTA 뉴스룸을 나란히
+    놓는다. news.html의 카드형(이미지 위·텍스트 아래)과 달리 헤드라인이 굵고
+    크게, 썸네일은 오른쪽 작은 정사각형으로 붙는 가로 리스트 포맷 — 소스당 5건.
+    위홈을 news.COMPETITOR_SOURCES 맨 앞에 둬서 컬럼 순서가 자동으로 맨 앞에 온다.
     """
     by_source: dict[str, list[regulation.Item]] = {}
     for i in d.news_items:
@@ -739,12 +887,12 @@ def render_competitors(d: SiteData) -> str:
     body = f"""
 <div class="kicker">GLOBAL OTA NEWSROOM</div>
 <h1>글로벌 OTA 뉴스룸</h1>
-<div class="sub">에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 자동 수집 · 소스당 5건 표시,
+<div class="sub">위홈·에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 자동 수집 · 소스당 5건 표시,
 화살표를 누르면 해당 뉴스룸으로 이동.</div>
 <div class="compgrid">{cols}</div>
 {FOOTER}"""
     return page("글로벌 OTA 뉴스룸", "competitors", 0, body,
-                "에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 보도자료 자동 수집.", wide=True)
+                "위홈·에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 보도자료 자동 수집.", wide=True)
 
 
 # ─────────────────────────────────────────────────────── 지역별 시장 지표
@@ -889,7 +1037,8 @@ guEl.addEventListener('change', () => {{
 
 # ─────────────────────────────────────────────────────── 월간 리포트 상세
 
-def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: dict[str, dict]) -> str:
+def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: dict[str, dict],
+                          demand: dict[str, dict]) -> str:
     delta = mom_delta(iss, prev)
     delta_txt = "" if delta is None else f" ({delta:+,} vs {prev.ym})"
 
@@ -937,6 +1086,8 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
 <h2>카테고리별 현황</h2>
 <div class="scroll"><table><tr><th>카테고리</th><th style="text-align:right">영업중</th>
 <th style="text-align:right">폐업</th><th style="text-align:right">누적</th></tr>{cat_rows}</table></div>
+
+{demand_kpis_html(demand)}
 {inbound_html}
 {perf_table_html(perf)}
 
@@ -966,7 +1117,7 @@ def build() -> None:
     for i, iss in enumerate(d.all_issues):
         prev = d.all_issues[i + 1] if i + 1 < len(d.all_issues) else None
         (SITE / "report" / f"{iss.ym}.html").write_text(
-            render_report_detail(iss, prev, d.inbound, d.perf), encoding="utf-8")
+            render_report_detail(iss, prev, d.inbound, d.perf, d.demand), encoding="utf-8")
 
     # 구독 즉시발송용 요약. subscribe_server.py 가 매 구독마다 크롤링을 다시
     # 돌리지 않도록, 빌드 시점에 딱 필요한 값만 여기 남겨둔다.

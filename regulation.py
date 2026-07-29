@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 import requests
 
-from sources import CORE_KEYWORDS
+from sources import AMBIGUOUS_KEYWORDS, CORE_KEYWORDS
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
@@ -46,8 +46,26 @@ class Item:
     image: str | None = None
 
     def matches_keywords(self, keywords: list[str] = CORE_KEYWORDS) -> bool:
+        """
+        대부분의 키워드는 부분일치로 충분하지만, AMBIGUOUS_KEYWORDS에 등록된
+        동형이의어(예: "방한" = 관광객 방한 vs 대통령 국빈 방한)는 등장 지점
+        근처(±15자)에 문맥 단어가 있어야 진짜 매치로 인정한다 — 그래야 외교
+        기사가 "방한" 하나로 오탐되지 않는다.
+        """
         text = f"{self.title} {self.summary}"
-        return any(k in text for k in keywords)
+        for k in keywords:
+            ctx_words = AMBIGUOUS_KEYWORDS.get(k)
+            if ctx_words is None:
+                if k in text:
+                    return True
+                continue
+            start = 0
+            while (idx := text.find(k, start)) != -1:
+                window = text[max(0, idx - 15):idx + len(k) + 15]
+                if any(c in window for c in ctx_words):
+                    return True
+                start = idx + 1
+        return False
 
 
 @dataclass

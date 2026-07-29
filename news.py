@@ -107,7 +107,7 @@ ENRICH_SOURCES = {"호텔앤레스토랑", "여행신문", "한국경제", "숙�
 
 # 경쟁사(OTA) 뉴스룸 — 공식 보도자료·마케팅 발표. 경쟁사 동향 페이지(competitors.html)가
 # 이 순서·구성으로 4등분 화면을 만든다.
-COMPETITOR_SOURCES = ["에어비앤비 뉴스룸", "아고다 뉴스룸", "부킹닷컴 뉴스룸", "클룩 뉴스룸"]
+COMPETITOR_SOURCES = ["위홈 공식블로그", "에어비앤비 뉴스룸", "아고다 뉴스룸", "부킹닷컴 뉴스룸", "클룩 뉴스룸"]
 
 
 def _fetch_og_image(url: str, headers: dict) -> str | None:
@@ -193,6 +193,7 @@ AIRBNB_NEWS_URL = "https://news.airbnb.com/ko/"
 AGODA_NEWS_URL = "https://www.agoda.com/press/ko-kr/newsroom/"
 BOOKING_NEWS_URL = "https://news.booking.com/ko-ko/"
 KLOOK_NEWS_URL = "https://www.klook.com/newsroom/"
+WEHOME_BLOG_URL = "https://rss.blog.naver.com/wehomeme.xml"  # 위홈 공식 네이버블로그 RSS
 STO_URL = "https://www.sto.or.kr/press"
 # 이전 URL(sto.or.kr/press/pressReleaseList.do)은 404 — 2026-07-28 재조사로 교체.
 # 새 URL도 /press/{제목slug}_/{nttNo} 형태라 사이트 개편 시 또 바뀔 수 있는 값이다.
@@ -315,6 +316,31 @@ def parse_klook_news(page: str) -> list[Item]:
     return items
 
 
+def parse_wehome_blog(xml_text: str) -> list[Item]:
+    """
+    위홈 공식 네이버블로그 RSS. 다른 RSS 소스와 달리 이미지가 <enclosure>나
+    <media:content>가 아니라 <description> CDATA 본문 안에 <img src="..."> 로
+    박혀 있다 — parse_rss()의 범용 이미지 추출로는 못 잡아서 여기서 따로 뽑는다.
+    <link>엔 ?fromRss=true&trackingCode=rss 추적 파라미터가 붙어 있어 <guid>(원본
+    URL)를 대신 쓴다.
+    """
+    items = []
+    for block in re.findall(r"<item[ >].*?</item>", xml_text, re.S):
+        title = _tag(block, "title")
+        guid = _tag(block, "guid")
+        if not (title and guid):
+            continue
+        desc = _tag(block, "description")
+        img_m = re.search(r'<img[^>]*src="([^"]+)"', desc)
+        items.append(Item(
+            source="위홈 공식블로그", title=title, url=guid,
+            date=_parse_pubdate(_tag(block, "pubDate")),
+            summary=re.sub(r"<[^>]+>", "", desc).strip()[:200],
+            image=img_m.group(1) if img_m else None,
+        ))
+    return items
+
+
 def parse_sto(page: str) -> list[Item]:
     """
     <tr><td>번호</td><td><a href="/press/제목slug_/nttNo">제목<span class="blt-new">...</span></a></td>
@@ -388,6 +414,7 @@ HTML_SOURCES = {
     "아고다 뉴스룸": (AGODA_NEWS_URL, parse_agoda_news),
     "부킹닷컴 뉴스룸": (BOOKING_NEWS_URL, parse_booking_news),
     "클룩 뉴스룸": (KLOOK_NEWS_URL, parse_klook_news),
+    "위홈 공식블로그": (WEHOME_BLOG_URL, parse_wehome_blog),
     "서울관광재단": (STO_URL, parse_sto),
     "대한숙박업중앙회": (MOTEL_URL, parse_motel),
     "부산관광공사": (BTO_URL, parse_bto),
@@ -410,6 +437,7 @@ SOURCE_SITE_URL = {
     "아고다 뉴스룸": AGODA_NEWS_URL,
     "부킹닷컴 뉴스룸": BOOKING_NEWS_URL,
     "클룩 뉴스룸": KLOOK_NEWS_URL,
+    "위홈 공식블로그": "https://blog.naver.com/wehomeme",
     "서울관광재단": STO_URL,
     "대한숙박업중앙회": MOTEL_URL,
     "부산관광공사": BTO_URL,

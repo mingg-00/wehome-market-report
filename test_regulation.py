@@ -69,6 +69,23 @@ def test_mcst_board_keyword_filter():
     assert not items[1].matches_keywords(), "문화 일반 기사까지 걸리면 필터가 너무 헐렁한 것"
 
 
+def test_ambiguous_keyword_needs_tourism_context():
+    """
+    "방한"(訪韓)은 "관광객 방한"과 "대통령 국빈 방한"에 둘 다 걸리는 동형이의어다.
+    2026-07-29 실측: 한-브라질 중소기업 협력 기사가 본문의 "국빈 방한" 하나로
+    규제·정책 동향에 잘못 들어왔다 — 그 회귀 방지용 테스트.
+    """
+    diplomatic = reg.Item(
+        source="정책브리핑", title="한국과브라질 중소기업 분야 협력 추진", url="x",
+        summary="올해 2월 룰라 브라질 대통령의 국빈 방한 시 체결한 MOU의 후속 조치를 논의했다.",
+    )
+    tourism = reg.Item(
+        source="문체부", title="올해 상반기 방한 외국인 관광객 1,071만 명 돌파", url="x",
+    )
+    assert not diplomatic.matches_keywords(), "대통령 국빈 방한 기사까지 걸리면 오탐"
+    assert tourism.matches_keywords(), "관광객 방한 기사는 여전히 걸려야 한다"
+
+
 def test_korea_briefing_extracts_title_and_lead():
     items = reg.parse_korea_briefing(KOREA_BRIEFING_HTML)
     assert len(items) == 2
