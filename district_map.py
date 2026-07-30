@@ -215,22 +215,26 @@ def _render_svg(shapes: list[tuple[str, list, bool, str]], width: int, height: i
             "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in (proj(lon, lat) for lon, lat in ring)) + "Z "
             for ring in rings
         )
+        largest = max(rings, key=len)
+        xs = [proj(lon, lat)[0] for lon, lat in largest]
+        ys = [proj(lon, lat)[1] for lon, lat in largest]
+        cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+
         # class=nodata를 따옴표 없이 쓰면(HTML5는 허용) '/>' 의 '/'가 속성값에 먹혀 자기
         # 닫힘이 깨진다 — 그 뒤에 오는 형제 요소가 전부 이 path의 자식으로 잘못 편입되고,
         # 그 상태로 다음 nodata path를 또 만나면 계속 중첩되며 지도 전체가 무너진다
         # (경기도처럼 매칭 안 된 시군구가 있는 지도에서만 재현 — 실측으로 발견).
-        attr = f' data-name="{name}"' if clickable else ' class="nodata"'
+        # data-cx/cy는 선택 시 찍을 핀 위치 — 라벨은 겹침 방지로 밀릴 수 있어 그 좌표를
+        # 그대로 쓰면 핀이 실제 위치에서 벗어난다(진짜 중심 좌표를 따로 들고 있어야 함).
+        attr = f' data-name="{name}" data-cx="{cx:.1f}" data-cy="{cy:.1f}"' if clickable else ' class="nodata"'
         path_strs.append(f'<path d="{d}"{attr}/>')
 
-        largest = max(rings, key=len)
-        xs = [proj(lon, lat)[0] for lon, lat in largest]
-        ys = [proj(lon, lat)[1] for lon, lat in largest]
         shape_w, shape_h = max(xs) - min(xs), max(ys) - min(ys)
         # 아주 작은 시군구엔 큰 글자가 어울리지 않고 옆 라벨과도 덜 겹친다 — 모양 크기에
         # 비례해 6.5~9px 사이로 조정(실측으로 이 범위가 자연스러웠다).
         font_size = max(6.5, min(9.0, min(shape_w, shape_h) * 0.5))
         labels.append({
-            "name": name, "text": label, "x": (min(xs) + max(xs)) / 2, "y": (min(ys) + max(ys)) / 2,
+            "name": name, "text": label, "x": cx, "y": cy,
             "w": len(label) * font_size * 0.95, "h": font_size * 1.1, "fs": font_size,
         })
 

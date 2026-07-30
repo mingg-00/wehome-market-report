@@ -563,6 +563,11 @@ img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
 #lkMapWrap path.sel{fill:var(--mint)}
 #lkMapWrap text{fill:var(--muted);text-anchor:middle;pointer-events:none}
 #lkMapWrap text.sel{fill:var(--bg);font-weight:800}
+#lkPin{pointer-events:none}
+#lkPin .pinbody{fill:var(--mint);stroke:var(--bg);stroke-width:1.5}
+#lkPin .pinhole{fill:var(--bg)}
+#lkPin .pinbadge{fill:var(--mint);stroke:var(--bg);stroke-width:1.5}
+#lkPin .pinbadgetext{fill:#fff;font-size:13px;font-weight:800;text-anchor:middle;dominant-baseline:central}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
@@ -1174,6 +1179,35 @@ const perfEmpty = document.getElementById('lkPerfEmpty');
 const rankBox = document.getElementById('lkRankBox');
 const rankList = document.getElementById('lkRankList');
 const mapWrap = document.getElementById('lkMapWrap');
+const PIN_SVG = '<g id="lkPin" style="display:none">'
+  + '<path class="pinbody" d="M0,0 C-3,-8 -15,-14 -15,-24 A15,15 0 1,1 15,-24 C15,-14 3,-8 0,0 Z"/>'
+  + '<circle class="pinhole" cx="0" cy="-24" r="7"/>'
+  + '<rect class="pinbadge" x="-32" y="-76" width="64" height="22" rx="11"/>'
+  + '<text class="pinbadgetext" x="0" y="-65"></text></g>';
+
+// 클릭한 시군구 위치에 핀을 찍고 그 안(위 배지)에 영업중 호스트 수를 숫자로 보여준다.
+// 핀은 path의 실제 중심 좌표(data-cx/cy)에 꽂는다 — 라벨 좌표는 겹침 방지로 밀렸을 수
+// 있어 쓰면 핀이 엉뚱한 데 찍힌다. 지도를 새로 불러올 때마다(innerHTML 통째로 교체)
+// 핀 <g>도 같이 날아가므로 그때마다 다시 붙여야 한다.
+function showPin(name) {{
+  const svg = mapWrap.querySelector('svg');
+  const path = svg && svg.querySelector('path[data-name="' + name + '"]');
+  if (!svg || !path) {{ const old = mapWrap.querySelector('#lkPin'); if (old) old.style.display = 'none'; return; }}
+  let pin = svg.querySelector('#lkPin');
+  if (!pin) {{
+    svg.insertAdjacentHTML('beforeend', PIN_SVG);
+    pin = svg.querySelector('#lkPin');
+  }}
+  const r = LK_DATA.find(x => x.sido === sidoEl.value && x.sigungu === name);
+  pin.querySelector('.pinbadgetext').textContent = r ? r.active.toLocaleString() + '곳' : '';
+  // 배지가 핀 위로 76유닛 튀어나오고 좌우로 32유닛 벌어진다 — 지도 위쪽·가장자리
+  // 시군구(도봉구 등)를 찍으면 그대로 잘려 나간다. 뷰박스 안에 들어오게 자리를 민다.
+  const vb = svg.viewBox.baseVal;
+  const cx = Math.min(Math.max(parseFloat(path.dataset.cx), vb.x + 34), vb.x + vb.width - 34);
+  const cy = Math.max(parseFloat(path.dataset.cy), vb.y + 80);
+  pin.setAttribute('transform', `translate(${{cx}},${{cy}})`);
+  pin.style.display = 'block';
+}}
 
 mapWrap.addEventListener('click', e => {{
   const p = e.target.closest('path[data-name]');
@@ -1219,6 +1253,7 @@ sidoEl.addEventListener('change', () => {{
         if (guEl.value) {{ // 지도가 늦게 로드되는 사이 이미 시군구를 선택했을 수 있다
           mapWrap.querySelectorAll('path[data-name="' + guEl.value + '"], text[data-name="' + guEl.value + '"]')
             .forEach(el => el.classList.add('sel'));
+          showPin(guEl.value);
         }}
       }})
       .catch(() => {{}});
@@ -1233,6 +1268,12 @@ guEl.addEventListener('change', () => {{
   mapWrap.querySelectorAll('path[data-name], text[data-name]').forEach(el => {{
     el.classList.toggle('sel', el.dataset.name === guEl.value);
   }});
+  if (guEl.value) {{
+    showPin(guEl.value);
+  }} else {{
+    const pin = mapWrap.querySelector('#lkPin');
+    if (pin) pin.style.display = 'none';
+  }}
   if (!r) {{ result.style.display = 'none'; empty.style.display = guEl.value ? 'block' : 'none'; return; }}
   document.getElementById('lkRankBadge').textContent =
     `전국 ${{r.national_rank}}위 (총 ${{NATIONAL_TOTAL.toLocaleString()}}곳 중) · ${{r.sido}} 내 ${{r.sido_rank}}위 (총 ${{r.sido_total}}곳 중)`;
