@@ -86,15 +86,20 @@ def _match_our_name(topo_name: str, our_names: list[str]) -> str | None:
     return None
 
 
-def build_district_maps(regions: list[dict], width: int = 480, height: int = 480) -> dict[str, str]:
+def build_district_maps(regions: list[dict], width: int = 480, height: int = 480,
+                         topo_path: Path | None = None) -> dict[str, str]:
     """
     regions: CategoryStats.regional_stats() 결과(전국 시도·시군구 목록).
     반환: {시도명: SVG 문자열}. 지도 데이터 자체가 없는 시도(현재는 제주뿐 — 커버리지
     밖)는 빠진다 — estimate.html은 그런 시도엔 막대 리스트만 보여준다.
+
+    topo_path: 테스트에서 671KB 실제 지도 자산 대신 작은 fixture를 주입하기 위한
+    지점(regional_stats의 today= 주입과 같은 패턴).
     """
-    if not TOPO_PATH.exists():
+    topo_path = topo_path or TOPO_PATH
+    if not topo_path.exists():
         return {}
-    topo = json.loads(TOPO_PATH.read_text(encoding="utf-8"))
+    topo = json.loads(topo_path.read_text(encoding="utf-8"))
     arcs = _decode_arcs(topo)
     geoms = topo["objects"][next(iter(topo["objects"]))]["geometries"]
 
