@@ -86,6 +86,22 @@ def test_ambiguous_keyword_needs_tourism_context():
     assert tourism.matches_keywords(), "관광객 방한 기사는 여전히 걸려야 한다"
 
 
+def test_ambiguous_keyword_needs_lodging_context():
+    """
+    "실증특례"는 공유숙박 전용 제도가 아니라 전 산업 공통 규제 샌드박스 명칭이다.
+    2026-07-30 실측: 통신·보안 분야 기사("성문 탐지 실증특례")가 이 단어 하나로
+    공유숙박 태그가 붙었다 — 그 회귀 방지용 테스트.
+    """
+    voice_phishing = reg.Item(
+        source="네이버뉴스", title="갤럭시폰이 보이스피싱범 목소리 잡는다…성문 탐지 실증특례", url="x",
+    )
+    wehome_blog = reg.Item(
+        source="위홈 공식블로그", title="[위홈] 공유숙박 실증특례와 임시허가, 무엇이 다를까요?", url="x",
+    )
+    assert not voice_phishing.matches_keywords(), "보이스피싱 성문 탐지 기사까지 걸리면 오탐"
+    assert wehome_blog.matches_keywords(), "공유숙박 실증특례 기사는 여전히 걸려야 한다"
+
+
 def test_korea_briefing_extracts_title_and_lead():
     items = reg.parse_korea_briefing(KOREA_BRIEFING_HTML)
     assert len(items) == 2
