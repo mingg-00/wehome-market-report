@@ -561,7 +561,7 @@ img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
 #lkMapWrap path[data-name]{cursor:pointer}
 #lkMapWrap path.nodata{fill:var(--line)}
 #lkMapWrap path.sel{fill:var(--mint)}
-#lkMapWrap text{font-size:9px;fill:var(--muted);text-anchor:middle;pointer-events:none}
+#lkMapWrap text{fill:var(--muted);text-anchor:middle;pointer-events:none}
 #lkMapWrap path.sel+text{fill:var(--bg);font-weight:800}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
