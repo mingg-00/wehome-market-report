@@ -578,9 +578,12 @@ img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
 .statuslegend .dot.active{background:var(--mint)}
 .statuslegend .dot.pause{background:#F0A93E}
 .statuslegend .dot.closed{background:var(--line)}
-.trendspark{display:flex;align-items:flex-end;gap:4px;height:64px;margin:10px 0 4px}
-.trendspark .tcol{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:4px}
-.trendspark .tbar{width:100%;background:var(--mint);border-radius:2px 2px 0 0;min-height:2px}
+.trendspark{display:flex;gap:4px;margin:10px 0 4px}
+.trendspark .tcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+.trendspark .tbarwrap{width:100%;height:52px;background:var(--card);border-radius:3px;
+ position:relative;overflow:hidden}
+.trendspark .tbar{position:absolute;bottom:0;left:0;width:100%;background:var(--mint);
+ border-radius:2px 2px 0 0;min-height:2px}
 .trendspark .tlabel{font-size:9px;color:var(--muted);white-space:nowrap}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
@@ -1317,7 +1320,7 @@ guEl.addEventListener('change', () => {{
   const maxMonthly = Math.max(1, ...r.monthly.map(m => m.n));
   document.getElementById('lkTrendSpark').innerHTML = r.monthly.map((m, i) => `
     <div class="tcol">
-      <div class="tbar" style="height:${{m.n / maxMonthly * 100}}%" title="${{m.ym}}: ${{m.n}}건"></div>
+      <div class="tbarwrap" title="${{m.ym}}: ${{m.n}}건"><div class="tbar" style="height:${{m.n / maxMonthly * 100}}%"></div></div>
       <div class="tlabel">${{i % 3 === 0 ? m.ym.slice(2) : ''}}</div>
     </div>`).join('');
 
