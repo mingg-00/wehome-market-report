@@ -972,6 +972,10 @@ def render_dashboard(d: SiteData) -> str:
     }});
   }}, {{threshold: .2}});
   els.forEach(e => obs.observe(e));
+  // 안전망: 백그라운드 탭으로 열려 있다가 포커스를 영영 안 받는 등, IntersectionObserver가
+  // 어떤 이유로든 끝내 안 터지면 콘텐츠가 opacity:0인 채 영원히 안 보이게 된다 — 애니메이션이
+  // 실패하는 것보다 콘텐츠가 아예 안 보이는 게 훨씬 나쁘다. 일정 시간 후 강제로 다 보여준다.
+  setTimeout(() => {{ els.forEach(e => e.classList.add('in')); }}, 3000);
 }})();
 </script>"""
     return page("대시보드", "dashboard", 0, body,
