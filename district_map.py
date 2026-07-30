@@ -203,9 +203,11 @@ def _render_svg(shapes: list[tuple[str, list, bool, str]], width: int, height: i
     def proj(lon: float, lat: float) -> tuple[float, float]:
         return (lon - lon0) * cos_lat * scale + pad, (lat1 - lat) * scale + pad
 
-    # path_strs[i]와 labels[i]는 같은 시군구를 가리킨다 — 아래서 짝지어 번갈아 출력해야
-    # CSS의 인접 형제 선택자(path.sel+text, 선택된 시군구만 글자색을 반전시키는 데 씀)가
-    # 맞는 <text>를 집어낼 수 있다.
+    # 라벨은 시군구 이름 텍스트끼리만 안 겹치면 되는 게 아니다 — 모든 <path>보다 나중에
+    # 그려야 한다. path와 text를 짝지어 번갈아 그리면(이전 방식) 뒤 순서의 이웃 도형이
+    # 앞 도형의 라벨 위를 그대로 덮어써 버린다(인접한 작은 구가 많은 지역에서 실측 확인
+    # — 종로구/성북구, 안양시/과천시 등). path를 전부 먼저 그리고 text를 전부 나중에
+    # 그리면 이 문제 자체가 안 생긴다.
     path_strs = []
     labels = []
     for name, rings, clickable, label in shapes:
@@ -213,7 +215,11 @@ def _render_svg(shapes: list[tuple[str, list, bool, str]], width: int, height: i
             "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in (proj(lon, lat) for lon, lat in ring)) + "Z "
             for ring in rings
         )
-        attr = f' data-name="{name}"' if clickable else " class=nodata"
+        # class=nodata를 따옴표 없이 쓰면(HTML5는 허용) '/>' 의 '/'가 속성값에 먹혀 자기
+        # 닫힘이 깨진다 — 그 뒤에 오는 형제 요소가 전부 이 path의 자식으로 잘못 편입되고,
+        # 그 상태로 다음 nodata path를 또 만나면 계속 중첩되며 지도 전체가 무너진다
+        # (경기도처럼 매칭 안 된 시군구가 있는 지도에서만 재현 — 실측으로 발견).
+        attr = f' data-name="{name}"' if clickable else ' class="nodata"'
         path_strs.append(f'<path d="{d}"{attr}/>')
 
         largest = max(rings, key=len)
@@ -224,18 +230,18 @@ def _render_svg(shapes: list[tuple[str, list, bool, str]], width: int, height: i
         # 비례해 6.5~9px 사이로 조정(실측으로 이 범위가 자연스러웠다).
         font_size = max(6.5, min(9.0, min(shape_w, shape_h) * 0.5))
         labels.append({
-            "text": label, "x": (min(xs) + max(xs)) / 2, "y": (min(ys) + max(ys)) / 2,
+            "name": name, "text": label, "x": (min(xs) + max(xs)) / 2, "y": (min(ys) + max(ys)) / 2,
             "w": len(label) * font_size * 0.95, "h": font_size * 1.1, "fs": font_size,
         })
 
     _declutter_labels(labels)
-    parts = []
-    for path_str, lb in zip(path_strs, labels):
+    text_strs = []
+    for lb in labels:
         x = min(max(lb["x"], lb["w"] / 2 + 1), width - lb["w"] / 2 - 1)
         y = min(max(lb["y"], pad), height - pad)
-        parts.append(path_str)
-        parts.append(f'<text x="{x:.1f}" y="{y:.1f}" font-size="{lb["fs"]:.1f}">{lb["text"]}</text>')
+        text_strs.append(f'<text x="{x:.1f}" y="{y:.1f}" font-size="{lb["fs"]:.1f}" data-name="{lb["name"]}">{lb["text"]}</text>')
 
+    parts = path_strs + text_strs
     return f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">' + "".join(parts) + "</svg>"
 
 

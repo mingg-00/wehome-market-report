@@ -562,7 +562,7 @@ img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
 #lkMapWrap path.nodata{fill:var(--line)}
 #lkMapWrap path.sel{fill:var(--mint)}
 #lkMapWrap text{fill:var(--muted);text-anchor:middle;pointer-events:none}
-#lkMapWrap path.sel+text{fill:var(--bg);font-weight:800}
+#lkMapWrap text.sel{fill:var(--bg);font-weight:800}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
@@ -1217,8 +1217,8 @@ sidoEl.addEventListener('change', () => {{
         mapWrap.innerHTML = svg;
         mapWrap.style.display = 'block';
         if (guEl.value) {{ // 지도가 늦게 로드되는 사이 이미 시군구를 선택했을 수 있다
-          const p = mapWrap.querySelector('path[data-name="' + guEl.value + '"]');
-          if (p) p.classList.add('sel');
+          mapWrap.querySelectorAll('path[data-name="' + guEl.value + '"], text[data-name="' + guEl.value + '"]')
+            .forEach(el => el.classList.add('sel'));
         }}
       }})
       .catch(() => {{}});
@@ -1230,7 +1230,7 @@ guEl.addEventListener('change', () => {{
   rankList.querySelectorAll('.rankrow').forEach(el => {{
     el.classList.toggle('sel', el.dataset.gu === guEl.value);
   }});
-  mapWrap.querySelectorAll('path[data-name]').forEach(el => {{
+  mapWrap.querySelectorAll('path[data-name], text[data-name]').forEach(el => {{
     el.classList.toggle('sel', el.dataset.name === guEl.value);
   }});
   if (!r) {{ result.style.display = 'none'; empty.style.display = guEl.value ? 'block' : 'none'; return; }}
