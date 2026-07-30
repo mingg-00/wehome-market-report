@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """파싱·dedup·집계 자체 점검. `python test_localdata.py` 로 실행. 네트워크 없음."""
 
+from datetime import date
+
 import localdata as ld
 
 # 같은 업체(mgt=A001, 같은 주소)가 등록→폐업 이벤트로 row 2개, 최종수정시점 다름.
@@ -87,6 +89,30 @@ def test_by_sigungu_monthly_tracks_all_history_regardless_of_status():
     s = ld.aggregate("foreigner_city_homestays", ROWS)
     # A001은 지금 폐업이지만 등록 시점(2024-03) 자체는 마포구 이력에 남아야 한다.
     assert s.by_sigungu_monthly["서울특별시 마포구"] == {"2024-03": 1, "2025-06": 1}
+
+
+def test_by_sigungu_status_counts_regardless_of_active_filter():
+    """by_sigungu(활성만)와 달리, 구별 영업상태 분포는 폐업·휴업도 다 잡아야 한다
+    ("영업중/휴업/폐업 비율" 시각화의 원자료)."""
+    s = ld.aggregate("foreigner_city_homestays", ROWS)
+    assert s.by_sigungu_status["서울특별시 마포구"] == {"closed": 1, "active": 1}
+    assert s.by_sigungu_status["서울특별시 용산구"] == {"pause": 1}
+    assert s.by_sigungu_status["부산광역시 수영구"] == {"closed": 1}
+
+
+def test_last_n_months_zero_fills_and_ends_at_given_date():
+    assert ld._last_n_months(3, end=date(2026, 3, 15)) == ["2026-01", "2026-02", "2026-03"]
+    assert ld._last_n_months(4, end=date(2026, 1, 31)) == ["2025-10", "2025-11", "2025-12", "2026-01"]
+
+
+def test_regional_stats_includes_status_and_zero_filled_trend():
+    s = ld.aggregate("foreigner_city_homestays", ROWS)
+    regions = {(r["sido"], r["sigungu"]): r for r in s.regional_stats(trend_months=3, today=date(2025, 6, 15))}
+    mapo = regions[("서울특별시", "마포구")]
+    assert mapo["closed"] == 1 and mapo["pause"] == 0
+    assert mapo["monthly"] == [
+        {"ym": "2025-04", "n": 0}, {"ym": "2025-05", "n": 0}, {"ym": "2025-06", "n": 1},
+    ], "등록 이력 없는 달(4·5월)도 0으로 채워져야 스파크라인 폭이 일정하다"
 
 
 def test_saturation_signal_flags_growth_slowdown():

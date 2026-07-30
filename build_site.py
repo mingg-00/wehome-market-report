@@ -568,6 +568,20 @@ img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
 #lkPin .pinhole{fill:var(--bg)}
 #lkPin .pinbadge{fill:var(--mint);stroke:var(--bg);stroke-width:1.5}
 #lkPin .pinbadgetext{fill:#fff;font-size:13px;font-weight:800;text-anchor:middle;dominant-baseline:central}
+.statusbar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--card);margin:10px 0 8px}
+.statusbar .seg{height:100%}
+.statusbar .seg.active{background:var(--mint)}
+.statusbar .seg.pause{background:#F0A93E}
+.statusbar .seg.closed{background:var(--line)}
+.statuslegend{display:flex;gap:16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+.statuslegend .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.statuslegend .dot.active{background:var(--mint)}
+.statuslegend .dot.pause{background:#F0A93E}
+.statuslegend .dot.closed{background:var(--line)}
+.trendspark{display:flex;align-items:flex-end;gap:4px;height:64px;margin:10px 0 4px}
+.trendspark .tcol{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:4px}
+.trendspark .tbar{width:100%;background:var(--mint);border-radius:2px 2px 0 0;min-height:2px}
+.trendspark .tlabel{font-size:9px;color:var(--muted);white-space:nowrap}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
@@ -1143,6 +1157,13 @@ def render_estimate(d: SiteData) -> str:
   </div>
   <div class="note" id="lkTrendNote"></div>
 
+  <div class="h2sub" style="margin-top:22px">영업 현황(등록 이력 전체 기준)</div>
+  <div class="statusbar" id="lkStatusBar"></div>
+  <div class="statuslegend" id="lkStatusLegend"></div>
+
+  <div class="h2sub" style="margin-top:22px">최근 12개월 신규등록 추이</div>
+  <div class="trendspark" id="lkTrendSpark"></div>
+
   <div id="lkPerf" style="display:none">
     <h2 style="margin-top:28px">공유숙박 실적 지표 <span id="lkPerfRegion"></span></h2>
     <div class="h2sub">출처: 야놀자리서치 국내 숙박업 실적 지표(<span id="lkPerfYm"></span>, 공유숙박 부문 광역
@@ -1283,6 +1304,22 @@ guEl.addEventListener('change', () => {{
   document.getElementById('lkGrowth').textContent =
     r.growth_pct === null ? '신규' : (r.growth_pct >= 0 ? '+' : '') + r.growth_pct + '%';
   document.getElementById('lkTrendNote').textContent = r.verdict;
+
+  const statusTotal = r.active + r.pause + r.closed;
+  const statusBar = document.getElementById('lkStatusBar');
+  const segs = [['active', '영업중', r.active], ['pause', '휴업', r.pause], ['closed', '폐업', r.closed]];
+  statusBar.innerHTML = segs.map(([cls, , n]) =>
+    `<div class="seg ${{cls}}" style="width:${{statusTotal ? n / statusTotal * 100 : 0}}%"></div>`).join('');
+  document.getElementById('lkStatusLegend').innerHTML = segs.map(([cls, label, n]) =>
+    `<span><span class="dot ${{cls}}"></span>${{label}} ${{n.toLocaleString()}}곳 (${{statusTotal ? Math.round(n / statusTotal * 100) : 0}}%)</span>`
+  ).join('');
+
+  const maxMonthly = Math.max(1, ...r.monthly.map(m => m.n));
+  document.getElementById('lkTrendSpark').innerHTML = r.monthly.map((m, i) => `
+    <div class="tcol">
+      <div class="tbar" style="height:${{m.n / maxMonthly * 100}}%" title="${{m.ym}}: ${{m.n}}건"></div>
+      <div class="tlabel">${{i % 3 === 0 ? m.ym.slice(2) : ''}}</div>
+    </div>`).join('');
 
   const perf = r.ynj_region ? YNJ_DATA[r.ynj_region] : null;
   if (perf) {{

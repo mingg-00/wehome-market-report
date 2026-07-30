@@ -63,6 +63,8 @@ class CategoryStats:
     monthly_registrations: dict[str, int] = field(default_factory=dict)  # "2026-07" -> 신규등록 건수(전체 이력)
     by_sigungu_monthly: dict[str, dict[str, int]] = field(default_factory=dict)
     # "서울특별시 마포구" -> {"2026-07": 12, ...} — 구별 월간 신규등록(현재 상태 무관, 전체 이력)
+    by_sigungu_status: dict[str, dict[str, int]] = field(default_factory=dict)
+    # "서울특별시 마포구" -> {"active": N, "closed": N, "pause": N} — 구별 영업상태 분포(전체 이력 기준)
     cohort_survival: dict[str, dict[str, float]] = field(default_factory=dict)
     # "2021" -> {"0": 1.0, "1": 0.83, ...} — 등록연도 코호트별 생존율(나이 t년차, life-table)
 
@@ -73,21 +75,33 @@ class CategoryStats:
         rows.sort(key=lambda kv: -kv[1])
         return rows[:top_n] if top_n else rows
 
-    def regional_stats(self) -> list[dict]:
+    def regional_stats(self, trend_months: int = 12, today: date | None = None) -> list[dict]:
         """
         전국 시군구 단위 요약 — "지역 선택하면 시장 지표 보여달라" 기능(estimate.html)의
         원자료. 등록 밀도·증감률뿐이라 실제 임대수익 추정치가 아니다(요금·점유율
         데이터가 없다) — 호출부가 반드시 그렇게 표기해야 한다.
+
+        monthly는 최근 trend_months개월을 등록 이력이 없는 달도 0으로 채워 반환한다 —
+        프론트에서 폭이 일정한 막대 스파크라인을 그리기 편하도록(구멍 뚫린 달이 있으면
+        막대 간격이 들쭉날쭉해진다). today는 테스트에서 날짜를 고정하기 위한 주입 지점
+        (cohort_survival의 today 인자와 같은 패턴).
         """
+        recent_yms = _last_n_months(trend_months, end=today)
         out = []
         for region, active in self.by_sigungu.items():
             sido, _, sigungu = region.partition(" ")
-            months = sorted(self.by_sigungu_monthly.get(region, {}).items())
+            monthly = self.by_sigungu_monthly.get(region, {})
+            months = sorted(monthly.items())
             recent = sum(c for _, c in months[-6:])
             prior = sum(c for _, c in months[-12:-6])
             growth = (recent - prior) / prior if prior else (float("inf") if recent else 0.0)
-            out.append({"sido": sido, "sigungu": sigungu, "active": active,
-                        "recent6": recent, "growth": growth})
+            status = self.by_sigungu_status.get(region, {})
+            out.append({
+                "sido": sido, "sigungu": sigungu, "active": active,
+                "recent6": recent, "growth": growth,
+                "closed": status.get("closed", 0), "pause": status.get("pause", 0),
+                "monthly": [{"ym": ym, "n": monthly.get(ym, 0)} for ym in recent_yms],
+            })
         return out
 
     def sido_rank(self, top_n: int | None = None) -> list[tuple[str, int]]:
@@ -150,6 +164,20 @@ def parse_region(row: dict) -> tuple[str, str]:
 def license_ym(row: dict) -> str | None:
     d = (row.get("인허가일자") or "").strip()
     return d[:7] if len(d) >= 7 and d[4] == "-" else None
+
+
+def _last_n_months(n: int, end: date | None = None) -> list[str]:
+    """오늘(또는 end)이 속한 달부터 거꾸로 n개월치 'YYYY-MM' — 등록 이력이 없는 달도
+    빠짐없이 들어간다(regional_stats의 월별 스파크라인이 폭 일정하게 나오도록)."""
+    end = end or date.today()
+    y, m = end.year, end.month
+    yms = []
+    for _ in range(n):
+        yms.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    return list(reversed(yms))
 
 
 def _parse_full_date(s: str | None) -> date | None:
@@ -245,11 +273,15 @@ def aggregate(slug: str, rows: list[dict]) -> CategoryStats:
     by_sigungu: Counter[str] = Counter()
     monthly: Counter[str] = Counter()
     by_sigungu_monthly: dict[str, Counter[str]] = {}
+    by_sigungu_status: dict[str, Counter[str]] = {}
     for r in deduped:
         sido, sigungu = parse_region(r)
         region_key = f"{sido} {sigungu}" if sido and sigungu else None
-        if classify(r.get("영업상태명", "")) == "active" and region_key:
+        status = classify(r.get("영업상태명", ""))
+        if status == "active" and region_key:
             by_sigungu[region_key] += 1
+        if region_key:
+            by_sigungu_status.setdefault(region_key, Counter())[status] += 1
         ym = license_ym(r)
         if ym:
             monthly[ym] += 1
@@ -263,6 +295,7 @@ def aggregate(slug: str, rows: list[dict]) -> CategoryStats:
         by_sigungu=dict(by_sigungu),
         monthly_registrations=dict(monthly),
         by_sigungu_monthly={k: dict(v) for k, v in by_sigungu_monthly.items()},
+        by_sigungu_status={k: dict(v) for k, v in by_sigungu_status.items()},
         cohort_survival=cohort_survival(deduped),
     )
 
