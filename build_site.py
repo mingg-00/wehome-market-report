@@ -38,6 +38,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import district_map
 import localdata
 import news
 import regulation
@@ -556,6 +557,12 @@ img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
 .mapwrap svg{width:100%;height:auto;display:block}
 .mapwrap path{transition:opacity .15s;cursor:default}
 .mapwrap path:hover{opacity:.72}
+#lkMapWrap path{fill:var(--card);stroke:var(--bg);stroke-width:1;transition:opacity .15s,fill .15s}
+#lkMapWrap path[data-name]{cursor:pointer}
+#lkMapWrap path.nodata{fill:var(--line)}
+#lkMapWrap path.sel{fill:var(--mint)}
+#lkMapWrap text{font-size:9px;fill:var(--muted);text-anchor:middle;pointer-events:none}
+#lkMapWrap path.sel+text{fill:var(--bg);font-weight:800}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
@@ -1085,6 +1092,16 @@ def render_estimate(d: SiteData) -> str:
         for r in group:
             r["sido_total"] = len(group)
 
+    # 시군구 지도는 시도당 최대 240KB(전남광주통합, 섬 많은 해안선 탓)라 estimate.html에
+    # 그대로 박아 넣으면 페이지 전체가 그만큼 무거워진다 — 시도별 SVG 파일로 따로 써 두고
+    # 선택 시점에만 fetch()로 가져온다(대부분 사용자는 1~2개 시도만 조회한다).
+    district_maps = district_map.build_district_maps(regions)
+    maps_dir = SITE / "maps"
+    maps_dir.mkdir(parents=True, exist_ok=True)
+    for sido, svg in district_maps.items():
+        (maps_dir / f"{sido}.svg").write_text(svg, encoding="utf-8")
+    map_sidos_json = json.dumps(sorted(district_maps.keys()), ensure_ascii=False)
+
     sidos = sorted({r["sido"] for r in regions})
     sido_options = "".join(f'<option value="{s}">{s}</option>' for s in sidos)
     data_json = json.dumps(regions, ensure_ascii=False)
@@ -1106,7 +1123,8 @@ def render_estimate(d: SiteData) -> str:
 
 <div id="lkRankBox" style="display:none">
   <h2>시도 내 시군구 순위</h2>
-  <div class="h2sub">막대를 눌러도 해당 시군구를 바로 조회할 수 있습니다.</div>
+  <div class="h2sub">지도나 막대를 눌러도 해당 시군구를 바로 조회할 수 있습니다.</div>
+  <div class="mapwrap" id="lkMapWrap" style="display:none"></div>
   <div id="lkRankList" class="ranklist"></div>
 </div>
 
@@ -1146,6 +1164,7 @@ def render_estimate(d: SiteData) -> str:
 const LK_DATA = {data_json};
 const YNJ_DATA = {perf_json};
 const NATIONAL_TOTAL = {national_total};
+const MAP_SIDOS = new Set({map_sidos_json});
 const sidoEl = document.getElementById('lkSido');
 const guEl = document.getElementById('lkGu');
 const result = document.getElementById('lkResult');
@@ -1154,13 +1173,21 @@ const perfBox = document.getElementById('lkPerf');
 const perfEmpty = document.getElementById('lkPerfEmpty');
 const rankBox = document.getElementById('lkRankBox');
 const rankList = document.getElementById('lkRankList');
+const mapWrap = document.getElementById('lkMapWrap');
+
+mapWrap.addEventListener('click', e => {{
+  const p = e.target.closest('path[data-name]');
+  if (p) {{ guEl.value = p.dataset.name; guEl.dispatchEvent(new Event('change')); }}
+}});
 
 sidoEl.addEventListener('change', () => {{
   guEl.innerHTML = '<option value="">시군구 선택</option>';
   result.style.display = 'none'; empty.style.display = 'none';
   rankBox.style.display = 'none'; rankList.innerHTML = '';
+  mapWrap.style.display = 'none'; mapWrap.innerHTML = '';
   if (!sidoEl.value) {{ guEl.disabled = true; return; }}
-  const group = LK_DATA.filter(r => r.sido === sidoEl.value).sort((a, b) => b.active - a.active);
+  const selectedSido = sidoEl.value;
+  const group = LK_DATA.filter(r => r.sido === selectedSido).sort((a, b) => b.active - a.active);
   group.forEach(r => {{
     const opt = document.createElement('option');
     opt.value = r.sigungu;
@@ -1181,12 +1208,30 @@ sidoEl.addEventListener('change', () => {{
     el.addEventListener('click', () => {{ guEl.value = el.dataset.gu; guEl.dispatchEvent(new Event('change')); }});
   }});
   rankBox.style.display = 'block';
+
+  if (MAP_SIDOS.has(selectedSido)) {{
+    fetch('maps/' + encodeURIComponent(selectedSido) + '.svg')
+      .then(r => r.text())
+      .then(svg => {{
+        if (sidoEl.value !== selectedSido) return; // 응답 오는 사이 다른 시도로 바뀌었으면 버림
+        mapWrap.innerHTML = svg;
+        mapWrap.style.display = 'block';
+        if (guEl.value) {{ // 지도가 늦게 로드되는 사이 이미 시군구를 선택했을 수 있다
+          const p = mapWrap.querySelector('path[data-name="' + guEl.value + '"]');
+          if (p) p.classList.add('sel');
+        }}
+      }})
+      .catch(() => {{}});
+  }}
 }});
 
 guEl.addEventListener('change', () => {{
   const r = LK_DATA.find(x => x.sido === sidoEl.value && x.sigungu === guEl.value);
   rankList.querySelectorAll('.rankrow').forEach(el => {{
     el.classList.toggle('sel', el.dataset.gu === guEl.value);
+  }});
+  mapWrap.querySelectorAll('path[data-name]').forEach(el => {{
+    el.classList.toggle('sel', el.dataset.name === guEl.value);
   }});
   if (!r) {{ result.style.display = 'none'; empty.style.display = guEl.value ? 'block' : 'none'; return; }}
   document.getElementById('lkRankBadge').textContent =
