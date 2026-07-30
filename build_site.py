@@ -612,6 +612,17 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
  background:var(--bg);color:var(--fg);font-size:14px;min-width:160px}
 .lookup select:disabled{opacity:.5}
 .lkResult{margin:8px 0 22px}
+.rankbadge{font-size:13px;font-weight:700;color:var(--mint);margin:0 0 16px}
+.ranklist{display:flex;flex-direction:column;gap:2px;margin-top:14px}
+.rankrow{display:grid;grid-template-columns:26px 1fr 3fr auto;gap:10px;align-items:center;
+ padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px}
+.rankrow:hover{background:var(--card)}
+.rankrow.sel{background:color-mix(in srgb,var(--mint) 14%,transparent);font-weight:800}
+.rankrow .rn{color:var(--muted);font-size:12px;text-align:right}
+.rankrow .rname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rankrow .rbarwrap{background:var(--card);border-radius:5px;height:8px;overflow:hidden}
+.rankrow .rbar{background:var(--mint);height:100%;border-radius:5px}
+.rankrow .rcount{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .billcard{background:var(--card);border:1px solid var(--line);border-radius:12px;
  padding:14px 16px;margin:10px 0}
 .billcard .meta{font-size:12px;color:var(--muted);margin-top:4px}
@@ -941,7 +952,7 @@ def render_news(d: SiteData) -> str:
     for src, items in by_source.items():
         cards = "".join(
             f'<a class="newscard" href="{i.url}" target="_blank" rel="noopener">'
-            + (f'<img src="{i.image}" loading="lazy" alt="">' if i.image
+            + (f'<img src="{i.image}" loading="lazy" alt="" referrerpolicy="no-referrer">' if i.image
                else f'<div class="noimg">{src[:2]}</div>')
             + f'<div class="t">{i.title}'
             + (' <span class="tag">공유숙박</span>' if i.matches_keywords(CORE_KEYWORDS) else "")
@@ -988,7 +999,7 @@ def render_competitors(d: SiteData) -> str:
         rows = "".join(
             f'<a class="comprow" href="{i.url}" target="_blank" rel="noopener">'
             f'<div class="t">{i.title}</div>'
-            + (f'<img src="{i.image}" loading="lazy" alt="">' if i.image
+            + (f'<img src="{i.image}" loading="lazy" alt="" referrerpolicy="no-referrer">' if i.image
                else f'<div class="noimg">{src[:2]}</div>')
             + '</a>'
             for i in items[:5]
@@ -1033,12 +1044,46 @@ def render_estimate(d: SiteData) -> str:
             return "신규 진입"
         return "성장" if growth >= 0.15 else "위축" if growth <= -0.15 else "안정"
 
+    def verdict(tier_: str, trend_: str) -> str:
+        """규모(tier)×증감(trend) 조합을 "포화 주의"류 한 줄 결론으로 — 숫자만 보여주고
+        판단은 사용자에게 떠넘기지 않는다("검색했을 때 100% 만족해야" 요청에 대한 응답)."""
+        if trend_ == "신규 진입":
+            return "신규 진입 지역 — 등록 이력이 막 생기기 시작해 아직 판단하기엔 이릅니다."
+        big = tier_ in ("대형", "중형")
+        if big and trend_ == "위축":
+            return "포화 주의 — 이미 호스트가 많은데 최근 신규 유입은 둔화됐습니다."
+        if big and trend_ == "성장":
+            return "경쟁 치열 — 이미 큰 시장인데도 계속 성장하고 있습니다."
+        if big and trend_ == "안정":
+            return "성숙 시장 — 규모가 크고 안정적으로 유지되고 있습니다."
+        if not big and trend_ == "성장":
+            return "성장 기회 — 아직 진입자가 적은데 최근 유입이 늘고 있습니다."
+        if not big and trend_ == "위축":
+            return "관망 필요 — 진입자도 적고 최근 유입도 둔화됐습니다."
+        return "틈새 시장 — 소규모지만 꾸준히 유지되고 있습니다."
+
     for r in regions:
         r["tier"] = tier(r["active"])
         r["trend"] = trend(r["growth"])
         r["growth_pct"] = None if r["growth"] == float("inf") else round(r["growth"] * 100)
         del r["growth"]
         r["ynj_region"] = yanolja_perf.SIDO_TO_REGION.get(r["sido"])
+        r["verdict"] = verdict(r["tier"], r["trend"])
+
+    regions.sort(key=lambda r: -r["active"])
+    for i, r in enumerate(regions, 1):
+        r["national_rank"] = i
+    national_total = len(regions)
+
+    by_sido_group: dict[str, list[dict]] = {}
+    for r in regions:
+        by_sido_group.setdefault(r["sido"], []).append(r)
+    for group in by_sido_group.values():
+        group.sort(key=lambda r: -r["active"])
+        for i, r in enumerate(group, 1):
+            r["sido_rank"] = i
+        for r in group:
+            r["sido_total"] = len(group)
 
     sidos = sorted({r["sido"] for r in regions})
     sido_options = "".join(f'<option value="{s}">{s}</option>' for s in sidos)
@@ -1059,7 +1104,14 @@ def render_estimate(d: SiteData) -> str:
   <select id="lkGu" disabled><option value="">시군구 선택</option></select>
 </div>
 
+<div id="lkRankBox" style="display:none">
+  <h2>시도 내 시군구 순위</h2>
+  <div class="h2sub">막대를 눌러도 해당 시군구를 바로 조회할 수 있습니다.</div>
+  <div id="lkRankList" class="ranklist"></div>
+</div>
+
 <div id="lkResult" class="lkResult" style="display:none">
+  <div class="rankbadge" id="lkRankBadge"></div>
   <div class="kpis">
     <div class="kpi"><div class="l">영업중 호스트</div><div class="v" id="lkActive">-</div></div>
     <div class="kpi"><div class="l">규모</div><div class="v" id="lkTier">-</div></div>
@@ -1093,42 +1145,58 @@ def render_estimate(d: SiteData) -> str:
 <script>
 const LK_DATA = {data_json};
 const YNJ_DATA = {perf_json};
+const NATIONAL_TOTAL = {national_total};
 const sidoEl = document.getElementById('lkSido');
 const guEl = document.getElementById('lkGu');
 const result = document.getElementById('lkResult');
 const empty = document.getElementById('lkEmpty');
 const perfBox = document.getElementById('lkPerf');
 const perfEmpty = document.getElementById('lkPerfEmpty');
+const rankBox = document.getElementById('lkRankBox');
+const rankList = document.getElementById('lkRankList');
 
 sidoEl.addEventListener('change', () => {{
   guEl.innerHTML = '<option value="">시군구 선택</option>';
   result.style.display = 'none'; empty.style.display = 'none';
+  rankBox.style.display = 'none'; rankList.innerHTML = '';
   if (!sidoEl.value) {{ guEl.disabled = true; return; }}
-  LK_DATA.filter(r => r.sido === sidoEl.value).sort((a, b) => b.active - a.active)
-    .forEach(r => {{
-      const opt = document.createElement('option');
-      opt.value = r.sigungu;
-      opt.textContent = `${{r.sigungu}} (${{r.active.toLocaleString()}}곳)`;
-      guEl.appendChild(opt);
-    }});
+  const group = LK_DATA.filter(r => r.sido === sidoEl.value).sort((a, b) => b.active - a.active);
+  group.forEach(r => {{
+    const opt = document.createElement('option');
+    opt.value = r.sigungu;
+    opt.textContent = `${{r.sigungu}} (${{r.active.toLocaleString()}}곳)`;
+    guEl.appendChild(opt);
+  }});
   guEl.disabled = false;
+
+  const max = group[0] ? group[0].active : 1;
+  rankList.innerHTML = group.map(r => `
+    <div class="rankrow" data-gu="${{r.sigungu}}">
+      <div class="rn">${{r.sido_rank}}</div>
+      <div class="rname">${{r.sigungu}}</div>
+      <div class="rbarwrap"><div class="rbar" style="width:${{Math.max(4, r.active / max * 100)}}%"></div></div>
+      <div class="rcount">${{r.active.toLocaleString()}}곳</div>
+    </div>`).join('');
+  rankList.querySelectorAll('.rankrow').forEach(el => {{
+    el.addEventListener('click', () => {{ guEl.value = el.dataset.gu; guEl.dispatchEvent(new Event('change')); }});
+  }});
+  rankBox.style.display = 'block';
 }});
 
 guEl.addEventListener('change', () => {{
   const r = LK_DATA.find(x => x.sido === sidoEl.value && x.sigungu === guEl.value);
+  rankList.querySelectorAll('.rankrow').forEach(el => {{
+    el.classList.toggle('sel', el.dataset.gu === guEl.value);
+  }});
   if (!r) {{ result.style.display = 'none'; empty.style.display = guEl.value ? 'block' : 'none'; return; }}
+  document.getElementById('lkRankBadge').textContent =
+    `전국 ${{r.national_rank}}위 (총 ${{NATIONAL_TOTAL.toLocaleString()}}곳 중) · ${{r.sido}} 내 ${{r.sido_rank}}위 (총 ${{r.sido_total}}곳 중)`;
   document.getElementById('lkActive').textContent = r.active.toLocaleString() + '곳';
   document.getElementById('lkTier').textContent = r.tier;
   document.getElementById('lkRecent').textContent = r.recent6.toLocaleString() + '건';
   document.getElementById('lkGrowth').textContent =
     r.growth_pct === null ? '신규' : (r.growth_pct >= 0 ? '+' : '') + r.growth_pct + '%';
-  const trendMsg = {{
-    '성장': '최근 6개월 신규등록이 직전 대비 뚜렷이 늘고 있는 지역입니다.',
-    '위축': '최근 6개월 신규등록이 직전 대비 줄어드는 지역입니다.',
-    '안정': '최근 6개월 신규등록이 직전과 비슷한 수준입니다.',
-    '신규 진입': '집계 기간 내 등록 이력이 거의 없는 신규 지역입니다.',
-  }}[r.trend] || '';
-  document.getElementById('lkTrendNote').textContent = `${{r.tier}} 규모 · ${{r.trend}} — ${{trendMsg}}`;
+  document.getElementById('lkTrendNote').textContent = r.verdict;
 
   const perf = r.ynj_region ? YNJ_DATA[r.ynj_region] : null;
   if (perf) {{
