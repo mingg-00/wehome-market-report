@@ -475,7 +475,7 @@ def perf_table_html(perf: dict[str, dict]) -> str:
 <div class="h2sub">공유숙박 부문 평균 객단가·객실 점유율·객실당매출 — {(ym[:4] + '-' + ym[4:]) if ym else '데이터 없음'} 기준,
 객실당매출 내림차순. 출처: 야놀자리서치 국내 숙박업 실적 지표(NOL·AirDNA·산하정보기술 블렌딩,
 광역 권역 평균 — 개별 매물 수익이 아님). <a href="estimate.html">지역별 시장 지표에서 지역 선택해 보기 →</a></div>
-<div class="mapwrap">{render_revpar_map(perf)}</div>
+<div class="mapwrap reveal">{render_revpar_map(perf)}</div>
 <div class="sub" style="text-align:center;margin-top:-4px">진할수록 객실당매출(RevPAR)이 높은 권역 · 회색은 야놀자리서치 커버리지 밖</div>
 <div class="scroll"><table><tr><th>권역</th><th style="text-align:right">평균 객단가</th>
 <th style="text-align:right">객실 점유율</th><th style="text-align:right">객실당매출</th></tr>{rows}</table></div>"""
@@ -493,7 +493,7 @@ def demand_kpis_html(demand: dict[str, dict]) -> str:
     order = ["54", "12", "13", "52", "53"]
     ym = next(iter(demand.values()))["ym"]
     cards = "".join(
-        f'<div class="kpi"><div class="l">{demand[k]["name"]}</div>'
+        f'<div class="kpi reveal"><div class="l">{demand[k]["name"]}</div>'
         f'<div class="v" style="font-size:20px">{demand[k]["display"]}</div>'
         f'<div class="d {"up" if demand[k]["rate"] >= 0 else "down"}">{demand[k]["rate"]:+.1f}% 전년동기대비</div></div>'
         for k in order if k in demand
@@ -553,6 +553,14 @@ h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--
 .kpi .d{font-size:12px;font-weight:700;margin-top:2px}
 .kpi .d.up{color:var(--mint)} .kpi .d.down{color:#E2574C}
 img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in{opacity:1;transform:translateY(0)}
+.mapwrap.reveal{transform:scale(.96)}
+.mapwrap.reveal.in{transform:scale(1)}
+.kpi.reveal:nth-child(1){transition-delay:0ms} .kpi.reveal:nth-child(2){transition-delay:70ms}
+.kpi.reveal:nth-child(3){transition-delay:140ms} .kpi.reveal:nth-child(4){transition-delay:210ms}
+.kpi.reveal:nth-child(5){transition-delay:280ms}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
 .mapwrap{max-width:480px;margin:12px auto}
 .mapwrap svg{width:100%;height:auto;display:block}
 .mapwrap path{transition:opacity .15s;cursor:default}
@@ -867,46 +875,46 @@ def render_dashboard(d: SiteData) -> str:
 <div class="sub">{c.ym} 기준 · {date.today():%Y-%m-%d} 갱신 · 행안부 원본 데이터 직접 수집</div>
 
 <div class="kpis">
-  <div class="kpi"><div class="l">외도민업 영업중</div><div class="v">{c.flagship.active:,}</div>{delta_html}</div>
-  <div class="kpi"><div class="l">폐업률</div><div class="v">{c.flagship.closure_rate:.1%}</div>
+  <div class="kpi reveal"><div class="l">외도민업 영업중</div><div class="v" data-count>{c.flagship.active:,}</div>{delta_html}</div>
+  <div class="kpi reveal"><div class="l">폐업률</div><div class="v" data-count>{c.flagship.closure_rate:.1%}</div>
     <div class="d">누적 {c.flagship.total:,}건 중 {c.flagship.closed:,}건</div></div>
-  <div class="kpi"><div class="l">서울 비중</div><div class="v">{c.seoul_share:.0%}</div>
+  <div class="kpi reveal"><div class="l">서울 비중</div><div class="v" data-count>{c.seoul_share:.0%}</div>
     <div class="d">{c.seoul_active:,}곳</div></div>
-  <div class="kpi"><div class="l">상위 3개구 집중도</div><div class="v">{c.concentration(3):.0%}</div>
+  <div class="kpi reveal"><div class="l">상위 3개구 집중도</div><div class="v" data-count>{c.concentration(3):.0%}</div>
     <div class="d">{top3_txt}</div></div>
 </div>
 
 <h2>등록 추이</h2>
 <div class="h2sub">최근 24개월 월별 신규등록(인허가일자 기준, 현재 상태 무관). 최신월 강조.</div>
-<img class="chart" src="data:image/png;base64,{chart_registrations_trend(c.flagship.recent_months(24))}">
+<img class="chart reveal" src="data:image/png;base64,{chart_registrations_trend(c.flagship.recent_months(24))}">
 
 <h2>등록연도별 생존곡선</h2>
 <div class="h2sub">아직 폐업하지 않은 곳을 우변절단으로 반영한 실제 생존율 — "폐업 건만 본
 존속기간"과 달리 생존편향이 없다. 짙은 남색일수록 오래된 등록연도, 민트에 가까울수록
 최근 연도(선 끝에 연도 표기). 표본 30건 미만인 코호트는 뺐다.</div>
-<img class="chart" src="data:image/png;base64,{chart_cohort_survival(c.flagship.cohort_survival)}">
+<img class="chart reveal" src="data:image/png;base64,{chart_cohort_survival(c.flagship.cohort_survival)}">
 
 <h2>전국 시도별 현황</h2>
 <div class="h2sub">서울에 국한하지 않은 전국 17개 시도 영업중 호스트 순위. 진할수록 밀도가 높은 지역 —
 지도에 마우스를 올리면 시도별 수치가 뜬다.</div>
-<div class="mapwrap">{render_sido_map(c.flagship)}</div>
-<img class="chart" src="data:image/png;base64,{chart_sido_rank(c.flagship)}">
+<div class="mapwrap reveal">{render_sido_map(c.flagship)}</div>
+<img class="chart reveal" src="data:image/png;base64,{chart_sido_rank(c.flagship)}">
 
 <h2>서울 자치구 순위</h2>
 <div class="h2sub">영업중 호스트 수 기준. 상위 3개 구가 전체의 {c.concentration(3):.0%}를 차지.</div>
-<img class="chart" src="data:image/png;base64,{chart_district_rank(c.flagship)}">
+<img class="chart reveal" src="data:image/png;base64,{chart_district_rank(c.flagship)}">
 
 <h2>포화 신호</h2>
 <div class="h2sub">밀도(영업중 호스트 수)와 최근 6개월 증감률을 산점도 4분면으로 — 오른쪽 위(성장)는
 이미 크면서 더 크는 중, 오른쪽 아래(포화)는 크지만 유입이 식는 중, 왼쪽 위(기회)는 아직
 작지만 빠르게 크는 중. 아래 표는 상위 8개 구의 정확한 수치.</div>
-<img class="chart" src="data:image/png;base64,{chart_saturation_scatter(c.flagship.saturation_signal(SEOUL))}">
+<img class="chart reveal" src="data:image/png;base64,{chart_saturation_scatter(c.flagship.saturation_signal(SEOUL))}">
 <div class="scroll"><table><tr><th>구</th><th style="text-align:right">영업중</th>
 <th style="text-align:right">최근 6개월 신규</th><th style="text-align:right">직전 6개월 대비</th></tr>{sat_rows}</table></div>
 
 <h2>카테고리 비교</h2>
 <div class="h2sub">공유숙박 5종 등록 규모. 농어촌민박이 절대 우위지만 도시 시장은 별개 축.</div>
-<img class="chart" src="data:image/png;base64,{chart_category_compare(c.categories)}">
+<img class="chart reveal" src="data:image/png;base64,{chart_category_compare(c.categories)}">
 
 {demand_kpis_html(d.demand)}
 
@@ -926,7 +934,46 @@ def render_dashboard(d: SiteData) -> str:
 페이지 자체 표기대로 시뮬레이션된 데모용 샘플입니다. 이 사이트는 그 수치를 인용하지 않고
 행정안전부 원본 등록 데이터를 직접 받아 집계합니다(k-stay API 미사용).</div>
 
-{FOOTER}"""
+{FOOTER}
+<script>
+(function() {{
+  const els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {{
+    els.forEach(e => e.classList.add('in'));
+    return;
+  }}
+  // KPI 숫자는 data-count 붙은 것만 카운트업한다 — 관광 수요 지표처럼 "1억 7,960만명" 같은
+  // 복합 단위 문자열은 앞자리 "1"만 숫자로 오인해 애니메이션이 이상해진다(실측 확인).
+  function animateCount(el) {{
+    const raw = el.textContent.trim();
+    const m = raw.match(/^(-?[\\d,]+(?:\\.\\d+)?)(.*)$/);
+    if (!m) return;
+    const target = parseFloat(m[1].replace(/,/g, ''));
+    const suffix = m[2];
+    const decimals = (m[1].split('.')[1] || '').length;
+    const start = performance.now();
+    const dur = 900;
+    requestAnimationFrame(function frame(now) {{
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = Number((target * eased).toFixed(decimals));
+      el.textContent = val.toLocaleString(undefined,
+        {{minimumFractionDigits: decimals, maximumFractionDigits: decimals}}) + suffix;
+      if (t < 1) requestAnimationFrame(frame); else el.textContent = raw;
+    }});
+  }}
+  const obs = new IntersectionObserver((entries) => {{
+    entries.forEach(entry => {{
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add('in');
+      const num = entry.target.querySelector('.v[data-count]');
+      if (num) animateCount(num);
+      obs.unobserve(entry.target);
+    }});
+  }}, {{threshold: .2}});
+  els.forEach(e => obs.observe(e));
+}})();
+</script>"""
     return page("대시보드", "dashboard", 0, body,
                 f"외국인관광도시민박업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}. "
                 "행정안전부 공공데이터 기반 공유숙박 시장 대시보드.")
