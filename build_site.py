@@ -33,8 +33,9 @@ import os
 import re
 import statistics
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 
@@ -62,6 +63,27 @@ SUBSCRIBE_ENDPOINT = os.getenv("SUBSCRIBE_ENDPOINT", "http://localhost:5055/subs
 CATEGORY_ORDER = ["foreigner_city_homestays", "hanok_experience", "tourist_pensions",
                    "tourist_accommodations", "rural_homestays"]
 SEOUL, BUSAN = "서울특별시", "부산광역시"
+
+# 위홈 호스트 등록 CTA. 실제 호스트 등록/가입 딥링크 경로는 이 저장소는 물론 형제
+# 프로젝트(wehome-newsletter, wehome-marketing-engine) 어디에도 없다 — 확실히 아는 건
+# 홈페이지(kstay.py의 UA 문자열, wehome-marketing-engine/knowledge/wehome_intro.md)뿐이라
+# 일단 홈페이지로 건다. 실제 경로가 정해지면 .env의 WEHOME_HOST_SIGNUP_URL 하나만 바꾸면 된다.
+WEHOME_HOST_SIGNUP_URL = os.getenv("WEHOME_HOST_SIGNUP_URL", "https://www.wehome.me")
+
+
+def wehome_cta_url(content: str) -> str:
+    """
+    위홈 CTA 클릭 추적용 UTM 링크. utm_content로 클릭 위치를 구분한다(landing_hero/
+    dashboard_banner/report_detail/estimate_result) — KPI '위홈 유입'(REPORT_SPEC.md,
+    실행일정 xlsx의 07-30 항목)을 위치별로 쪼개 보려면 이게 있어야 한다.
+      utm_source=wehome_market_report — 이 사이트가 출처임을 고정
+      utm_medium=referral            — 유료 광고가 아닌 자체 사이트 유입
+      utm_campaign=market_report     — 캠페인 단위(추후 발행호별로 나눌 수도 있음)
+      utm_content=<content>          — 클릭한 위치
+    """
+    params = {"utm_source": "wehome_market_report", "utm_medium": "referral",
+              "utm_campaign": "market_report", "utm_content": content}
+    return f"{WEHOME_HOST_SIGNUP_URL}?{urlencode(params)}"
 
 
 # ─────────────────────────────────────────────────────── 스냅샷 · 아카이브
@@ -131,6 +153,8 @@ class SiteData:
     reconcile_note: str
     perf: dict[str, dict]
     demand: dict[str, dict]
+    visitors: dict
+    entry_index: list[dict]
 
 
 def gather() -> SiteData:
@@ -149,6 +173,18 @@ def gather() -> SiteData:
     print("한국관광 데이터랩 관광 수요 지표 수집 중...")
     demand = tourism_demand.collect()
     print(f"  {len(demand)}/{len(tourism_demand.METRICS)}개 지표")
+    print("TourAPI 지역별 방문자수 수집 중...")
+    visit_ymd = (date.today() - timedelta(days=30)).strftime("%Y%m%d")  # 발행 지연 약 30일
+    visitors = {
+        "ymd": visit_ymd,
+        "province": tourism_demand.collect_province_visitors(visit_ymd, visit_ymd),
+        "district": tourism_demand.collect_district_visitors(visit_ymd, visit_ymd),
+    }
+    print(f"  시도 {len(visitors['province'])}곳 · 시군구 {len(visitors['district'])}곳")
+    # district 방문자수가 비면(TOUR_API_KEY 미설정 등) None을 넘겨 entry_index가 3축으로
+    # 자동 강등되게 한다 — {}를 그대로 넘기면 전 지역이 "매칭 없음"으로 빠져 결과가 통째로 빈다.
+    entry_idx = localdata.entry_index(categories, visitors=visitors["district"] or None)
+    print(f"  진입 적합도 지수: {len(entry_idx)}개 구 ({'4축(수요 포함)' if entry_idx and 'demand' in entry_idx[0] else '3축'})")
     flagship_active = categories[localdata.FLAGSHIP].active
     ss_active = ss.operating(ss.months[0])
     gap = ss_active - flagship_active
@@ -170,6 +206,8 @@ def gather() -> SiteData:
         reconcile_note=note,
         perf=perf,
         demand=demand,
+        visitors=visitors,
+        entry_index=entry_idx,
     )
 
 
@@ -179,18 +217,55 @@ def mom_delta(cur: Issue, prev: Issue | None) -> int | None:
 
 # ─────────────────────────────────────────────────────── 차트
 
+SVG_FONT = "-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard',sans-serif"
+
+
+def _nice_ticks(vmax: float, count: int = 4) -> list[float]:
+    """0..vmax를 대략 count개 구간으로 나누는 '보기 좋은' 눈금값(1/2/2.5/5/10 배수)."""
+    if vmax <= 0:
+        return [0, 1]
+    raw_step = vmax / count
+    mag = 10 ** math.floor(math.log10(raw_step))
+    step = 10 * mag
+    for m in (1, 2, 2.5, 5, 10):
+        if m * mag >= raw_step:
+            step = m * mag
+            break
+    n = math.ceil(vmax / step)
+    return [round(step * i, 6) for i in range(n + 1)]
+
+
 def chart_registrations_trend(monthly: list[tuple[str, int]]) -> str:
-    import matplotlib.pyplot as plt
     months, counts = zip(*monthly)
-    fig, ax = plt.subplots(figsize=(9, 3.6))
-    colors = [viz.MINT if i == len(counts) - 1 else viz.NAVY for i in range(len(counts))]
-    ax.bar(months, counts, color=colors, width=0.68)
-    ax.set_title("외국인관광 도시민박업 월별 신규등록 추이 (24개월)", fontsize=13, weight="bold", pad=14)
-    ax.tick_params(axis="x", rotation=60, labelsize=8)
-    ax.grid(axis="y", alpha=.25)
-    viz.strip_spines(ax)
-    fig.tight_layout()
-    return viz.to_png(fig)
+    n = len(counts)
+    W, H = 720, 340
+    ml, mr, mt, mb = 44, 10, 34, 66
+    pw, ph = W - ml - mr, H - mt - mb
+    ticks = _nice_ticks(max(counts))
+    vmax = ticks[-1] or 1
+    slot = pw / n
+    bw = slot * 0.68
+    base_y = mt + ph
+
+    grid = "".join(
+        f'<line x1="{ml}" x2="{W - mr}" y1="{base_y - (t / vmax) * ph:.1f}" y2="{base_y - (t / vmax) * ph:.1f}" stroke="var(--line)"/>'
+        f'<text x="{ml - 8}" y="{base_y - (t / vmax) * ph + 4:.1f}" font-size="10" fill="var(--muted)" text-anchor="end">{int(t):,}</text>'
+        for t in ticks
+    )
+    bars = "".join(
+        f'<rect class="cbar" x="{ml + i * slot + (slot - bw) / 2:.1f}" y="{base_y - (c / vmax) * ph:.1f}" '
+        f'width="{bw:.1f}" height="{(c / vmax) * ph:.1f}" rx="2" fill="{"var(--mint)" if i == n - 1 else "var(--navy)"}" '
+        f'style="transition-delay:{i * 22}ms"><title>{m} {c:,}건</title></rect>'
+        for i, (m, c) in enumerate(zip(months, counts))
+    )
+    labels = "".join(
+        f'<text x="{ml + i * slot + slot / 2:.1f}" y="{base_y + 14}" font-size="9" fill="var(--muted)" '
+        f'text-anchor="end" transform="rotate(-60 {ml + i * slot + slot / 2:.1f} {base_y + 14})">{m}</text>'
+        for i, m in enumerate(months)
+    )
+    return (f'<svg class="chart" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="{SVG_FONT}">'
+            f'<text x="{ml}" y="20" font-size="14" font-weight="700" fill="var(--fg)">외국인관광 도시민박업 월별 신규등록 추이 (24개월)</text>'
+            f'{grid}{bars}{labels}</svg>')
 
 
 def chart_cohort_survival(cohort_survival: dict[str, dict[str, float]]) -> str:
@@ -204,60 +279,125 @@ def chart_cohort_survival(cohort_survival: dict[str, dict[str, float]]) -> str:
     ->최근(MINT) 그러데이션으로 색만 바꾸고, 선 끝에 연도를 직접 라벨링해서
     범례 상자 없이도 어떤 선이 몇 년도인지 읽히게 한다.
     """
-    import matplotlib.pyplot as plt
     years = sorted(cohort_survival, key=int)
-    fig, ax = plt.subplots(figsize=(9, 4.8))
+    W, H = 720, 460
+    ml, mr, mt, mb = 40, 50, 34, 40
+    pw, ph = W - ml - mr, H - mt - mb
     if not years:
-        ax.text(0.5, 0.5, "데이터 없음", ha="center", va="center", transform=ax.transAxes)
+        return (f'<svg class="chart" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="{SVG_FONT}">'
+                f'<text x="{W / 2}" y="{H / 2}" text-anchor="middle" fill="var(--muted)">데이터 없음</text></svg>')
+
     n = len(years)
-    end_points = []  # (year, x_end, y_true, color) — 선 다 그린 뒤 한 번에 라벨 배치(겹침 방지)
+    end_points = []  # (year, ts, vals, color) — 선 다 그린 뒤 한 번에 라벨 배치(겹침 방지)
+    max_age = 0
     for i, year in enumerate(years):
         curve = cohort_survival[year]
         ts = sorted((int(t) for t in curve), key=int)
         vals = [curve[str(t)] * 100 for t in ts]
+        max_age = max(max_age, ts[-1])
         color = viz.NAVY if n == 1 else _lerp_color(viz.NAVY, viz.MINT, i / (n - 1))
-        ax.plot(ts, vals, color=color, linewidth=1.6)
-        end_points.append((year, ts[-1], vals[-1], color))
+        end_points.append((year, ts, vals, color))
+
+    xmax = max_age + 1.3  # 연도 라벨 들어갈 여백
+
+    def px(age: float) -> float: return ml + (age / xmax) * pw
+    def py_(val: float) -> float: return mt + ph - (val / 100) * ph
+
+    lines = []
+    for i, (year, ts, vals, color) in enumerate(end_points):
+        pts = [(px(t), py_(v)) for t, v in zip(ts, vals)]
+        length = sum(math.hypot(x2 - x1, y2 - y1) for (x1, y1), (x2, y2) in zip(pts, pts[1:])) or 1
+        d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+        lines.append(f'<path class="cline" d="{d}" fill="none" stroke="{color}" stroke-width="1.6" '
+                      f'stroke-dasharray="{length:.1f}" stroke-dashoffset="{length:.1f}" style="transition-delay:{i * 40}ms"/>')
 
     # 오른쪽 끝에서 값이 비슷한 코호트가 여럿이면 라벨이 겹친다(실측 확인) — y값 오름차순으로
     # 훑으면서 이전 라벨과 min_gap(percentage point) 미만이면 그만큼 밀어 올린다. 원래 값(y_true)과
     # 라벨 위치(y_label)가 밀렸으면 가는 선으로 이어줘서 어떤 선인지 헷갈리지 않게 한다.
     min_gap = 3.2
-    end_points.sort(key=lambda p: p[2])
+    labels = []
     y_label = None
-    for year, x, y_true, color in end_points:
+    for year, ts, vals, color in sorted(end_points, key=lambda p: p[2][-1]):
+        x, y_true = ts[-1], vals[-1]
         y_label = y_true if y_label is None else max(y_label + min_gap, y_true)
+        x_px, y_true_px, y_label_px = px(x), py_(y_true), py_(y_label)
         if abs(y_label - y_true) > 0.5:
-            ax.plot([x, x + 0.15], [y_true, y_label], color=color, linewidth=.6, alpha=.6)
-        ax.annotate(year, (x + 0.15, y_label), textcoords="offset points", xytext=(2, 0),
-                     fontsize=7.5, color=color, va="center")
+            labels.append(f'<line class="clabel" x1="{x_px:.1f}" y1="{y_true_px:.1f}" x2="{x_px + 4:.1f}" '
+                           f'y2="{y_label_px:.1f}" stroke="{color}" stroke-width=".6" opacity=".6"/>')
+        labels.append(f'<text class="clabel" x="{x_px + 7:.1f}" y="{y_label_px + 3:.1f}" font-size="9.5" '
+                       f'fill="{color}">{year}</text>')
 
-    ax.set_title("등록연도 코호트별 생존곡선 (우변절단 반영)", fontsize=13, weight="bold", pad=14)
-    ax.set_xlabel("등록 후 경과연수", fontsize=9)
-    ax.set_ylabel("생존율(%)", fontsize=9)
-    ax.set_ylim(0, 105)
-    if end_points:
-        ax.set_xlim(right=max(p[1] for p in end_points) + 1.3)  # 연도 라벨 들어갈 여백
-    ax.grid(axis="y", alpha=.25)
-    viz.strip_spines(ax)
-    fig.tight_layout()
-    return viz.to_png(fig)
+    yticks = [0, 20, 40, 60, 80, 100]
+    grid = "".join(
+        f'<line x1="{ml}" x2="{W - mr}" y1="{py_(t):.1f}" y2="{py_(t):.1f}" stroke="var(--line)"/>'
+        f'<text x="{ml - 8}" y="{py_(t) + 4:.1f}" font-size="10" fill="var(--muted)" text-anchor="end">{t}</text>'
+        for t in yticks
+    )
+    xstep = max(1, round(max_age / min(max_age, 10) if max_age else 1))
+    xlabels = "".join(
+        f'<text x="{px(a):.1f}" y="{mt + ph + 16}" font-size="9" fill="var(--muted)" text-anchor="middle">{a}</text>'
+        for a in range(0, max_age + 1, xstep)
+    )
+
+    return (f'<svg class="chart" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="{SVG_FONT}">'
+            f'<text x="{ml}" y="20" font-size="14" font-weight="700" fill="var(--fg)">등록연도 코호트별 생존곡선 (우변절단 반영)</text>'
+            f'{grid}{"".join(lines)}{"".join(labels)}{xlabels}'
+            f'<text x="{W / 2}" y="{H - 4}" font-size="10" fill="var(--muted)" text-anchor="middle">등록 후 경과연수 →</text>'
+            f'</svg>')
+
+
+def _hbar_chart(rows: list[tuple[str, int]], title: str, *, log: bool = False,
+                 mint=None, label_w: float = 60) -> str:
+    """가로 막대그래프 공용 렌더러 — 자치구·시도·카테고리 순위가 축·그리드·애니메이션
+    구조는 같고 로그스케일 여부·강조(mint) 규칙만 달라 여기 하나로 모았다."""
+    n = len(rows)
+    W, row_h = 720, 30
+    ml, mr, mt, mb = label_w, 46, 34, 10
+    ph = n * row_h
+    H = mt + ph + mb
+    pw = W - ml - mr
+    mint = mint or (lambda label, i: i == n - 1)
+    vals = [v for _, v in rows]
+
+    if log:
+        lo, hi = 1, max(vals) or 1
+        def scale(v): return (math.log10(max(v, 1) / lo) / math.log10(hi / lo)) if hi > lo else 1.0
+        grid_at = []
+        p = 1
+        while p <= hi:
+            grid_at.append(p)
+            p *= 10
+        if len(grid_at) < 2:
+            grid_at = [lo, hi]
+    else:
+        vmax = (_nice_ticks(max(vals) if vals else 0))[-1] or 1
+        def scale(v): return v / vmax
+        grid_at = _nice_ticks(max(vals) if vals else 0)[1:]
+
+    grid = "".join(
+        f'<line x1="{ml + scale(t) * pw:.1f}" x2="{ml + scale(t) * pw:.1f}" y1="{mt}" y2="{mt + ph}" stroke="var(--line)"/>'
+        for t in grid_at
+    )
+    bars, labels, vlabels = [], [], []
+    for i, (label, v) in enumerate(rows):
+        y = mt + i * row_h
+        bw = scale(v) * pw
+        color = "var(--mint)" if mint(label, i) else "var(--navy)"
+        bars.append(f'<rect class="cbarh" x="{ml:.1f}" y="{y + 5:.1f}" width="{bw:.1f}" height="{row_h - 10}" rx="2" '
+                     f'fill="{color}" style="transition-delay:{i * 26}ms"><title>{label} {v:,}</title></rect>')
+        labels.append(f'<text x="{ml - 8:.1f}" y="{y + row_h / 2 + 4:.1f}" font-size="11" fill="var(--fg)" '
+                       f'text-anchor="end">{label}</text>')
+        vlabels.append(f'<text class="clabel" x="{ml + bw + 6:.1f}" y="{y + row_h / 2 + 4:.1f}" font-size="10.5" '
+                        f'font-weight="700" fill="var(--fg)" style="transition-delay:{i * 26 + 250}ms">{v:,}</text>')
+
+    return (f'<svg class="chart" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="{SVG_FONT}">'
+            f'<text x="0" y="20" font-size="14" font-weight="700" fill="var(--fg)">{title}</text>'
+            f'{grid}{"".join(bars)}{"".join(labels)}{"".join(vlabels)}</svg>')
 
 
 def chart_district_rank(flagship: localdata.CategoryStats, sido: str = SEOUL, top_n: int = 15) -> str:
-    import matplotlib.pyplot as plt
     top = flagship.district_rank(sido, top_n)[::-1]
-    fig, ax = plt.subplots(figsize=(7, 5.2))
-    colors = ([viz.NAVY] * (len(top) - 1) + [viz.MINT])
-    ax.barh([g for g, _ in top], [c for _, c in top], color=colors, height=.66)
-    for i, (_, c) in enumerate(top):
-        ax.annotate(f"{c:,}", (c, i), textcoords="offset points", xytext=(6, -4),
-                    fontsize=9, weight="bold")
-    ax.set_title(f"서울 자치구별 영업중 호스트 TOP {top_n}", fontsize=13, weight="bold", pad=14)
-    ax.grid(axis="x", alpha=.25)
-    viz.strip_spines(ax, keep=())
-    fig.tight_layout()
-    return viz.to_png(fig)
+    return _hbar_chart(top, f"서울 자치구별 영업중 호스트 TOP {top_n}", label_w=54)
 
 
 def chart_saturation_scatter(sat: list[tuple[str, int, int, float]]) -> str:
@@ -271,48 +411,60 @@ def chart_saturation_scatter(sat: list[tuple[str, int, int, float]]) -> str:
     growth가 inf인 경우(직전 6개월 신규가 0건이라 나눗셈이 안 되는 경우)는
     그래프가 깨지므로 빼고 각주로 몇 곳 빠졌는지만 밝힌다.
     """
-    import statistics
-
-    import matplotlib.pyplot as plt
-
     finite = [(gu, active, g) for gu, active, _, g in sat if g != float("inf")]
     skipped = len(sat) - len(finite)
-    fig, ax = plt.subplots(figsize=(8, 6))
+    W, H = 720, 520
+    ml, mr, mt, mb = 54, 20, 34, 32
+    pw, ph = W - ml - mr, H - mt - mb
     if not finite:
-        ax.text(0.5, 0.5, "데이터 없음", ha="center", va="center", transform=ax.transAxes)
-        fig.tight_layout()
-        return viz.to_png(fig)
+        return (f'<svg class="chart" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="{SVG_FONT}">'
+                f'<text x="{W / 2}" y="{H / 2}" text-anchor="middle" fill="var(--muted)">데이터 없음</text></svg>')
 
     actives = [a for _, a, _ in finite]
     growths = [g * 100 for _, _, g in finite]
     x_mid = statistics.median(actives)
 
-    ax.scatter(actives, growths, s=46, color=viz.NAVY, alpha=.85, zorder=3)
-    for gu, active, g in finite:
-        ax.annotate(gu.removesuffix("구"), (active, g * 100), fontsize=7.5,
-                    textcoords="offset points", xytext=(5, 4), color=viz.NAVY)
+    xlo, xhi = min(actives) * 0.8, max(actives) * 1.3
+    yspan = max(growths) - min(growths) or 20
+    ylo, yhi = min(growths) - yspan * .15, max(growths) + yspan * .15
+    if ylo > 0:
+        ylo = -yspan * .1
+    if yhi < 0:
+        yhi = yspan * .1
 
-    ax.axhline(0, color=viz.GREY, linewidth=1, zorder=1)
-    ax.axvline(x_mid, color=viz.GREY, linewidth=1, zorder=1)
-    ax.set_xscale("log")
-    corner = dict(fontsize=10, weight="bold", color=viz.GREY, alpha=.85)
-    y0, y1 = ax.get_ylim()
-    x0, x1 = ax.get_xlim()
-    ax.text(x1 * .75, y1 * .92, "성장", ha="center", **corner)
-    ax.text(x1 * .75, y0 * .92, "포화", ha="center", **corner)
-    ax.text(x0 * 1.4, y1 * .92, "기회", ha="center", **corner)
-    ax.text(x0 * 1.4, y0 * .92, "침체", ha="center", **corner)
+    def xpx(v: float) -> float:
+        return ml + (math.log10(max(v, xlo)) - math.log10(xlo)) / (math.log10(xhi) - math.log10(xlo)) * pw
+
+    def ypx(v: float) -> float:
+        return mt + ph - (v - ylo) / (yhi - ylo) * ph
+
+    dots, labels = [], []
+    for i, (gu, active, g) in enumerate(finite):
+        cx, cy = xpx(active), ypx(g * 100)
+        dots.append(f'<circle class="cdot" cx="{cx:.1f}" cy="{cy:.1f}" r="4.6" fill="var(--navy)" fill-opacity=".85" '
+                     f'style="transition-delay:{i * 18}ms"><title>{gu} 영업중 {active:,} 직전6개월대비 {g:+.1%}</title></circle>')
+        labels.append(f'<text class="clabel" x="{cx + 6:.1f}" y="{cy - 5:.1f}" font-size="8.5" fill="var(--navy)" '
+                       f'style="transition-delay:{i * 18 + 150}ms">{gu.removesuffix("구")}</text>')
+
+    qx0, qx1 = ml + pw * .08, ml + pw * .82
+    qy_top, qy_bot = mt + ph * .12, mt + ph * .94
+    quadrants = "".join(
+        f'<text x="{x:.1f}" y="{y:.1f}" font-size="10" font-weight="700" fill="var(--muted)" '
+        f'opacity=".85" text-anchor="middle">{t}</text>'
+        for x, y, t in [(qx1, qy_top, "성장"), (qx1, qy_bot, "포화"), (qx0, qy_top, "기회"), (qx0, qy_bot, "침체")]
+    )
 
     title = "포화 신호 산점도 — 밀도 vs 최근 6개월 증감률"
     if skipped:
-        title += f" ({skipped}개 구는 직전 6개월 신규 0건이라 증감률 계산 불가로 제외)"
-    ax.set_title(title, fontsize=12, weight="bold", pad=14)
-    ax.set_xlabel("영업중 호스트 수(로그스케일)", fontsize=9)
-    ax.set_ylabel("직전 6개월 대비 증감률(%)", fontsize=9)
-    ax.grid(alpha=.2)
-    viz.strip_spines(ax)
-    fig.tight_layout()
-    return viz.to_png(fig)
+        title += f" ({skipped}개 구 제외)"
+
+    return (f'<svg class="chart" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="{SVG_FONT}">'
+            f'<text x="{ml}" y="20" font-size="13" font-weight="700" fill="var(--fg)">{title}</text>'
+            f'<line x1="{ml}" x2="{W - mr}" y1="{ypx(0):.1f}" y2="{ypx(0):.1f}" stroke="var(--line)"/>'
+            f'<line x1="{xpx(x_mid):.1f}" x2="{xpx(x_mid):.1f}" y1="{mt}" y2="{mt + ph}" stroke="var(--line)"/>'
+            f'{quadrants}{"".join(dots)}{"".join(labels)}'
+            f'<text x="{ml}" y="{H - 6}" font-size="9.5" fill="var(--muted)">영업중 호스트 수(로그스케일) · 세로축: 직전 6개월 대비 증감률 →</text>'
+            f'</svg>')
 
 
 # localdata.py의 시도명(주소 파싱 결과) -> assets/kr_sido.svg의 path id(ISO 3166-2:KR).
@@ -422,40 +574,16 @@ def render_revpar_map(perf: dict[str, dict]) -> str:
 
 def chart_sido_rank(flagship: localdata.CategoryStats, top_n: int = 17) -> str:
     """전국 시도별 영업중 호스트 순위 — district_rank가 서울 안에서만 도는 것과 달리 전국 커버."""
-    import matplotlib.pyplot as plt
     top = flagship.sido_rank(top_n)[::-1]
-    fig, ax = plt.subplots(figsize=(7, 5.2))
-    colors = ([viz.NAVY] * (len(top) - 1) + [viz.MINT])
-    ax.barh([s for s, _ in top], [c for _, c in top], color=colors, height=.66)
-    for i, (_, c) in enumerate(top):
-        ax.annotate(f"{c:,}", (c, i), textcoords="offset points", xytext=(6, -4),
-                    fontsize=9, weight="bold")
-    ax.set_title(f"전국 시도별 영업중 호스트 TOP {top_n}", fontsize=13, weight="bold", pad=14)
-    ax.grid(axis="x", alpha=.25)
-    viz.strip_spines(ax, keep=())
-    fig.tight_layout()
-    return viz.to_png(fig)
+    return _hbar_chart(top, f"전국 시도별 영업중 호스트 TOP {top_n}", label_w=80)
 
 
 def chart_category_compare(categories: dict[str, localdata.CategoryStats]) -> str:
     """5종 카테고리 규모 비교. 농어촌민박이 압도적으로 커서 로그스케일."""
-    import matplotlib.pyplot as plt
     items = [(categories[k].name_ko, categories[k].active) for k in CATEGORY_ORDER if k in categories]
     items.sort(key=lambda kv: kv[1])
-    fig, ax = plt.subplots(figsize=(7, 3.2))
-    labels = [k for k, _ in items]
-    vals = [v for _, v in items]
-    colors = [viz.MINT if l == "외국인관광도시민박업" else viz.NAVY for l in labels]
-    ax.barh(labels, vals, color=colors, height=.6)
-    ax.set_xscale("log")
-    for i, v in enumerate(vals):
-        ax.annotate(f"{v:,}", (v, i), textcoords="offset points", xytext=(6, -4),
-                    fontsize=9, weight="bold")
-    ax.set_title("5종 공유숙박 카테고리 규모 비교 (영업중, 로그스케일)", fontsize=13, weight="bold", pad=14)
-    ax.grid(axis="x", which="both", alpha=.2)
-    viz.strip_spines(ax)
-    fig.tight_layout()
-    return viz.to_png(fig)
+    return _hbar_chart(items, "5종 공유숙박 카테고리 규모 비교 (영업중, 로그스케일)", log=True,
+                        mint=lambda label, i: label == "외국인관광도시민박업", label_w=168)
 
 
 def perf_table_html(perf: dict[str, dict]) -> str:
@@ -505,6 +633,69 @@ def demand_kpis_html(demand: dict[str, dict]) -> str:
 <div class="kpis">{cards}</div>"""
 
 
+def visitor_demand_html(visitors: dict) -> str:
+    """
+    TourAPI 시도/시군구별 방문자수(현지인·외지인·외국인 합산) — demand_kpis_html의
+    전국 합계 5개 지표와 달리 지역별로 방문 수요가 어디 몰리는지 보여준다. 발행 지연이
+    약 30일이라(tourism_demand.py 주석 참고) 이번 달이 아니라 그보다 한 달 전 특정일
+    스냅샷이다. 시군구 키는 tourism_demand.collect_district_visitors가 signguCode로
+    시도를 역산해 "시도 시군구" 형식으로 준다(동명 지역 구분됨) — 전국 TOP 10 표. 등록
+    데이터와 실제로 합쳐 순위를 매기는 건 entry_index_html(진입 적합도 지수) 쪽.
+    """
+    province, district, ymd = visitors.get("province"), visitors.get("district"), visitors.get("ymd")
+    if not province:
+        return ""
+    prov_rows = "".join(
+        f"<tr><td>{i}</td><td>{area}</td><td class=n>{v['total']:,.0f}</td></tr>"
+        for i, (area, v) in enumerate(sorted(province.items(), key=lambda kv: -kv[1]["total"])[:10], 1)
+    )
+    dist_rows = "".join(
+        f"<tr><td>{i}</td><td>{area}</td><td class=n>{v['total']:,.0f}</td></tr>"
+        for i, (area, v) in enumerate(sorted(district.items(), key=lambda kv: -kv[1]["total"])[:10], 1)
+    )
+    ymd_disp = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}"
+    return f"""
+<h2>지역별 방문자수</h2>
+<div class="h2sub">{ymd_disp} 기준 일일 방문자수(현지인+외지인+외국인 합산). 출처: 한국관광공사 TourAPI
+관광빅데이터(이동통신 기반, 발행 지연 약 30일). 등록 호스트 수(공급)와 별개로 실제 방문 수요
+분포를 보여준다. 시군구는 "시도 시군구" 형식으로 표기해 동명 지역(예: 부산 중구·대구 중구)을
+구분한다.</div>
+<div class="scroll"><table><tr><th>#</th><th>시도</th><th style="text-align:right">방문자수</th></tr>{prov_rows}</table></div>
+<div class="scroll"><table><tr><th>#</th><th>시군구</th><th style="text-align:right">방문자수</th></tr>{dist_rows}</table></div>"""
+
+
+def entry_index_html(entry_idx: list[dict]) -> str:
+    """
+    localdata.entry_index() 결과 — 등록 데이터(성장·생존·적합도)와 TourAPI 방문자수(수요)를
+    합쳐 만드는 자체 지수라, 위 두 섹션(등록 추이/서울 자치구 순위, 지역별 방문자수)과
+    달리 원천 데이터를 그대로 보여주는 게 아니라 이 리포트가 직접 계산해 내놓는 값이다
+    — 그래서 표 아래에 산식을 명시한다. 수요 축은 visitors가 있을 때만 붙으므로(entry_idx
+    첫 행에 "demand" 키 존재 여부로 판별) TOUR_API_KEY 미설정 시엔 3축으로 자동 강등된다.
+    """
+    if not entry_idx:
+        return ""
+    has_demand = "demand" in entry_idx[0]
+    demand_th = "<th style=\"text-align:right\">수요</th>" if has_demand else ""
+    rows = "".join(
+        f"<tr><td>{i}</td><td>{r['sido']} {r['sigungu']}</td>"
+        f"<td class=n>{r['pct_growth']}</td><td class=n>{r['pct_survival']}</td><td class=n>{r['pct_fit']}</td>"
+        + (f"<td class=n>{r['pct_demand']}</td>" if has_demand else "")
+        + f"<td class=n><b>{r['index']}</b></td></tr>"
+        for i, r in enumerate(entry_idx[:10], 1)
+    )
+    axes_desc = ("성장·생존·적합도·수요 4축" if has_demand else
+                 "성장·생존·적합도 3축(TOUR_API_KEY 미설정 — 수요 축 제외)")
+    return f"""
+<h2>진입 적합도 지수</h2>
+<div class="h2sub">외도민업 신규 진입 시 다른 구 대비 상대적으로 유리한 정도를 {axes_desc}(전부 백분위,
+동일가중)으로 계산. 성장=최근/직전 6개월 신규등록 증감률, 생존=1-누적 폐업률, 적합도=5종 카테고리
+전체 공급 중 외도민업 비중{"," if has_demand else ""}{" 수요=(외지인+외국인 방문자수)/영업중 호스트 수" if has_demand else ""}.
+호스트 수(규모)는 의도적으로 뺐다 — 넣으면 지수가 자치구 순위 재탕이 된다. 표본 부족·판단 불가 구는 제외.</div>
+<div class="scroll"><table><tr><th>#</th><th>구</th><th style="text-align:right">성장</th>
+<th style="text-align:right">생존</th><th style="text-align:right">적합도</th>{demand_th}
+<th style="text-align:right">지수</th></tr>{rows}</table></div>"""
+
+
 def chart_inbound(annual_totals: list[dict]) -> str:
     import matplotlib.pyplot as plt
     years = [str(a["year"]) for a in annual_totals]
@@ -538,8 +729,10 @@ nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,
 .brand{font-weight:800;letter-spacing:-.02em;font-size:15px;text-decoration:none}
 .brand span{color:var(--mint)}
 .navlinks{display:flex;gap:20px;font-size:13.5px;font-weight:600}
-.navlinks a{text-decoration:none;color:var(--muted)}
+.navlinks a{text-decoration:none;color:var(--muted);white-space:nowrap}
 .navlinks a.active{color:var(--fg)}
+@media(max-width:680px){.navin{overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .brand{flex:none}.navlinks{flex:none}}
 .wrap{max-width:var(--maxw);margin:0 auto;padding:36px 20px 80px}
 .kicker{color:var(--mint);font-weight:800;letter-spacing:.14em;font-size:11.5px;text-transform:uppercase}
 h1{font-size:32px;line-height:1.22;margin:.35em 0 .15em;letter-spacing:-.02em}
@@ -552,7 +745,19 @@ h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--
 .kpi .v{font-size:27px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums}
 .kpi .d{font-size:12px;font-weight:700;margin-top:2px}
 .kpi .d.up{color:var(--mint)} .kpi .d.down{color:#E2574C}
-img.chart{max-width:100%;height:auto;display:block;margin:6px 0}
+.chart{width:100%;height:auto;display:block;margin:6px 0;overflow:visible}
+.reveal .cbar{transform-box:fill-box;transform-origin:bottom;transform:scaleY(0)}
+.reveal.in .cbar{transform:scaleY(1);transition:transform .8s cubic-bezier(.16,1,.3,1)}
+.reveal .cbarh{transform-box:fill-box;transform-origin:left;transform:scaleX(0)}
+.reveal.in .cbarh{transform:scaleX(1);transition:transform .8s cubic-bezier(.16,1,.3,1)}
+.reveal .cdot{transform-box:fill-box;transform-origin:center;transform:scale(0);opacity:0}
+.reveal.in .cdot{transform:scale(1);opacity:1;transition:transform .5s cubic-bezier(.34,1.56,.64,1),opacity .3s}
+.reveal .cline{transition:stroke-dashoffset 1.1s cubic-bezier(.16,1,.3,1)}
+.reveal.in .cline{stroke-dashoffset:0}
+.reveal .clabel{opacity:0;transition:opacity .5s}
+.reveal.in .clabel{opacity:1}
+@media(prefers-reduced-motion:reduce){.reveal .cbar,.reveal .cbarh,.reveal .cdot{transform:none!important}
+ .reveal .cline{transition:none!important;stroke-dashoffset:0!important}}
 .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
 .reveal.in{opacity:1;transform:translateY(0)}
 .mapwrap.reveal{transform:scale(.96)}
@@ -649,7 +854,26 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
  background:var(--bg);color:var(--fg);font-size:14px;min-width:160px}
 .lookup select:disabled{opacity:.5}
 .lkResult{margin:8px 0 22px}
-.rankbadge{font-size:13px;font-weight:700;color:var(--mint);margin:0 0 16px}
+.verdictCard{border-radius:18px;padding:24px 26px 22px;margin:8px 0 22px;
+ border:1px solid var(--line);background:var(--card)}
+.verdictCard[data-tone="positive"]{border-color:color-mix(in srgb,var(--mint) 45%,var(--line));
+ background:color-mix(in srgb,var(--mint) 9%,var(--card))}
+.verdictCard[data-tone="warning"]{border-color:color-mix(in srgb,#E2574C 40%,var(--line));
+ background:color-mix(in srgb,#E2574C 7%,var(--card))}
+.verdictCard[data-tone="caution"]{border-color:color-mix(in srgb,#F0A93E 45%,var(--line));
+ background:color-mix(in srgb,#F0A93E 9%,var(--card))}
+.vcTop{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px 14px}
+.vcRegion{font-size:23px;font-weight:800;letter-spacing:-.02em}
+.vcRank{font-size:12.5px;font-weight:700;color:var(--muted);white-space:nowrap}
+.vcVerdict{font-size:17px;font-weight:750;line-height:1.5;margin-top:12px;letter-spacing:-.01em}
+.verdictCard[data-tone="positive"] .vcVerdict{color:color-mix(in srgb,var(--mint) 70%,var(--fg))}
+.verdictCard[data-tone="warning"] .vcVerdict{color:#E2574C}
+.verdictCard[data-tone="caution"] .vcVerdict{color:color-mix(in srgb,#F0A93E 55%,var(--fg))}
+.vcStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:16px;
+ margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+.vsV{font-size:22px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.vsV.up{color:var(--mint)} .vsV.down{color:#E2574C}
+.vsL{font-size:11.5px;color:var(--muted);margin-top:3px}
 .ranklist{display:flex;flex-direction:column;gap:2px;margin-top:14px}
 .rankrow{display:grid;grid-template-columns:26px 1fr 3fr auto;gap:10px;align-items:center;
  padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px}
@@ -672,9 +896,12 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .issue .arrow{color:var(--muted)}
 footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  font-size:12px;color:var(--muted);line-height:1.8}
-.hero{padding:8px 0 4px}
+.hero{padding:8px 0 4px;display:grid;grid-template-columns:1fr 300px;gap:8px;align-items:center}
 .hero h1{font-size:38px}
 .heroSub{font-size:16px;color:var(--muted);max-width:52ch;margin-top:6px}
+.heroArt{width:100%;height:auto;-webkit-mask-image:linear-gradient(to right,transparent,#000 42%);
+ mask-image:linear-gradient(to right,transparent,#000 42%)}
+@media(max-width:760px){.hero{grid-template-columns:1fr}.heroArt{display:none}}
 .pitch{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:28px 0}
 .pitch div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .pitch .t{font-weight:750;font-size:14.5px}
@@ -697,6 +924,14 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 .consent input{margin-top:3px}
 .formMsg{font-size:13px;margin-top:10px;font-weight:600}
 .formMsg.ok{color:var(--mint)} .formMsg.err{color:#E2574C}
+.wehomeCta{display:inline-block;margin-top:14px;padding:12px 22px;border-radius:10px;
+ background:var(--navy);color:#fff;font-weight:700;font-size:14px;text-decoration:none}
+:root[data-theme="dark"] .wehomeCta{background:var(--mint);color:#04211c}
+@media(prefers-color-scheme:dark){.wehomeCta{background:var(--mint);color:#04211c}}
+.ctaBanner{background:var(--card);border:1px solid var(--line);border-radius:16px;
+ padding:22px 24px;margin:24px 0;text-align:center}
+.ctaBanner .t{font-weight:750;font-size:16px}
+.ctaBanner .d{font-size:13.5px;color:var(--muted);margin-top:6px}
 """
 
 
@@ -720,6 +955,7 @@ def nav(active: str, depth: int = 0) -> str:
 
 def page(title: str, active: str, depth: int, body: str, description: str = "", wide: bool = False) -> str:
     return f"""<title>{title} · {TITLE}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{description}">
 <style>{CSS}</style>
 {nav(active, depth)}
@@ -776,6 +1012,27 @@ document.getElementById('subForm').addEventListener('submit', async (e) => {{
 </script>"""
 
 
+def _hero_art(monthly: list[tuple[str, int]]) -> str:
+    """히어로 우측 장식 그래픽 — 스톡사진 대신 실제 등록추이 데이터를 수치 없이 실루엣만
+    보여준다. 이 사이트의 정체성이 '추정치 없는 원본 데이터'라, 사진보다 실데이터로 만든
+    그래픽이 메시지에 맞는다는 판단. 텍스트와 겹치는 왼쪽은 CSS mask로 흐리게 뺀다."""
+    vals = [v for _, v in monthly]
+    n = len(vals)
+    W, H = 320, 240
+    vmax = max(vals) or 1
+    pts = [(i / (n - 1) * W, H * .1 + (1 - v / vmax) * H * .7) for i, v in enumerate(vals)]
+    line = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = line + f" L {W:.1f},{H:.1f} L 0,{H:.1f} Z"
+    return f"""<svg class="heroArt" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient id="heroFade" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0%" stop-color="var(--mint)" stop-opacity=".35"/>
+<stop offset="100%" stop-color="var(--mint)" stop-opacity="0"/>
+</linearGradient></defs>
+<path d="{area}" fill="url(#heroFade)"/>
+<path d="{line}" fill="none" stroke="var(--mint)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>"""
+
+
 def render_landing(d: SiteData) -> str:
     c = d.current
     top3 = c.flagship.district_rank(SEOUL, 3)
@@ -784,10 +1041,14 @@ def render_landing(d: SiteData) -> str:
 
     body = f"""
 <div class="hero">
-  <div class="kicker">SHARED STAY MARKET REPORT</div>
-  <h1>공유숙박 시장,<br>숫자로 읽습니다</h1>
-  <div class="heroSub">행정안전부 원본 등록 데이터를 매달 직접 받아 집계합니다.
-  추정치·샘플 데이터 없이, 등록 추이·지역별 밀도·포화 신호·규제 동향을 한 곳에서 확인하세요.</div>
+  <div>
+    <div class="kicker">SHARED STAY MARKET REPORT</div>
+    <h1>공유숙박 시장,<br>숫자로 읽습니다</h1>
+    <div class="heroSub">행정안전부 원본 등록 데이터를 매달 직접 받아 집계합니다.
+    추정치·샘플 데이터 없이, 등록 추이·지역별 밀도·포화 신호·규제 동향을 한 곳에서 확인하세요.</div>
+    <a class="wehomeCta" href="{wehome_cta_url('landing_hero')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
+  </div>
+  {_hero_art(c.flagship.recent_months(24))}
 </div>
 
 <div class="previewCard">
@@ -886,37 +1147,41 @@ def render_dashboard(d: SiteData) -> str:
 
 <h2>등록 추이</h2>
 <div class="h2sub">최근 24개월 월별 신규등록(인허가일자 기준, 현재 상태 무관). 최신월 강조.</div>
-<img class="chart reveal" src="data:image/png;base64,{chart_registrations_trend(c.flagship.recent_months(24))}">
+<div class="reveal">{chart_registrations_trend(c.flagship.recent_months(24))}</div>
 
 <h2>등록연도별 생존곡선</h2>
 <div class="h2sub">아직 폐업하지 않은 곳을 우변절단으로 반영한 실제 생존율 — "폐업 건만 본
 존속기간"과 달리 생존편향이 없다. 짙은 남색일수록 오래된 등록연도, 민트에 가까울수록
 최근 연도(선 끝에 연도 표기). 표본 30건 미만인 코호트는 뺐다.</div>
-<img class="chart reveal" src="data:image/png;base64,{chart_cohort_survival(c.flagship.cohort_survival)}">
+<div class="reveal">{chart_cohort_survival(c.flagship.cohort_survival)}</div>
 
 <h2>전국 시도별 현황</h2>
 <div class="h2sub">서울에 국한하지 않은 전국 17개 시도 영업중 호스트 순위. 진할수록 밀도가 높은 지역 —
 지도에 마우스를 올리면 시도별 수치가 뜬다.</div>
 <div class="mapwrap reveal">{render_sido_map(c.flagship)}</div>
-<img class="chart reveal" src="data:image/png;base64,{chart_sido_rank(c.flagship)}">
+<div class="reveal">{chart_sido_rank(c.flagship)}</div>
 
 <h2>서울 자치구 순위</h2>
 <div class="h2sub">영업중 호스트 수 기준. 상위 3개 구가 전체의 {c.concentration(3):.0%}를 차지.</div>
-<img class="chart reveal" src="data:image/png;base64,{chart_district_rank(c.flagship)}">
+<div class="reveal">{chart_district_rank(c.flagship)}</div>
 
 <h2>포화 신호</h2>
 <div class="h2sub">밀도(영업중 호스트 수)와 최근 6개월 증감률을 산점도 4분면으로 — 오른쪽 위(성장)는
 이미 크면서 더 크는 중, 오른쪽 아래(포화)는 크지만 유입이 식는 중, 왼쪽 위(기회)는 아직
 작지만 빠르게 크는 중. 아래 표는 상위 8개 구의 정확한 수치.</div>
-<img class="chart reveal" src="data:image/png;base64,{chart_saturation_scatter(c.flagship.saturation_signal(SEOUL))}">
+<div class="reveal">{chart_saturation_scatter(c.flagship.saturation_signal(SEOUL))}</div>
 <div class="scroll"><table><tr><th>구</th><th style="text-align:right">영업중</th>
 <th style="text-align:right">최근 6개월 신규</th><th style="text-align:right">직전 6개월 대비</th></tr>{sat_rows}</table></div>
 
 <h2>카테고리 비교</h2>
 <div class="h2sub">공유숙박 5종 등록 규모. 농어촌민박이 절대 우위지만 도시 시장은 별개 축.</div>
-<img class="chart reveal" src="data:image/png;base64,{chart_category_compare(c.categories)}">
+<div class="reveal">{chart_category_compare(c.categories)}</div>
 
 {demand_kpis_html(d.demand)}
+
+{visitor_demand_html(d.visitors)}
+
+{entry_index_html(d.entry_index)}
 
 {perf_table_html(d.perf)}
 
@@ -927,6 +1192,12 @@ def render_dashboard(d: SiteData) -> str:
 <h2>규제·정책 동향</h2>
 <div class="h2sub">문체부·정책브리핑 자동 수집 · 공유숙박 키워드 매칭</div>
 {news_html}
+
+<div class="ctaBanner">
+  <div class="t">지금 이 시장에 뛰어들고 싶다면</div>
+  <div class="d">위에서 본 등록 추이·구별 순위·포화 신호를 직접 확인했으니, 위홈에서 호스트로 시작해보세요.</div>
+  <a class="wehomeCta" href="{wehome_cta_url('dashboard_banner')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
+</div>
 
 <h2>데이터 신뢰도</h2>
 <div class="note">{d.reconcile_note}</div>
@@ -1124,23 +1395,28 @@ def render_estimate(d: SiteData) -> str:
             return "신규 진입"
         return "성장" if growth >= 0.15 else "위축" if growth <= -0.15 else "안정"
 
-    def verdict(tier_: str, trend_: str) -> str:
-        """규모(tier)×증감(trend) 조합을 "포화 주의"류 한 줄 결론으로 — 숫자만 보여주고
-        판단은 사용자에게 떠넘기지 않는다("검색했을 때 100% 만족해야" 요청에 대한 응답)."""
+    def verdict(tier_: str, trend_: str) -> tuple[str, str]:
+        """
+        규모(tier)×증감(trend) 조합을 "포화 주의"류 한 줄 결론으로 — 숫자만 보여주고
+        판단은 사용자에게 떠넘기지 않는다("검색했을 때 100% 만족해야" 요청에 대한 응답).
+        tone은 결론 카드 색을 정하는 신호등 — positive=진입 유리, warning=회피 신호,
+        caution=유리하지만 주의, neutral=판단 재료 부족/무난. 새 색을 만들지 않고 사이트에
+        이미 있는 4가지 의미색(mint=up, red=down, amber=warn, navy=중립)만 재사용한다.
+        """
         if trend_ == "신규 진입":
-            return "신규 진입 지역 — 등록 이력이 막 생기기 시작해 아직 판단하기엔 이릅니다."
+            return "신규 진입 지역 — 등록 이력이 막 생기기 시작해 아직 판단하기엔 이릅니다.", "neutral"
         big = tier_ in ("대형", "중형")
         if big and trend_ == "위축":
-            return "포화 주의 — 이미 호스트가 많은데 최근 신규 유입은 둔화됐습니다."
+            return "포화 주의 — 이미 호스트가 많은데 최근 신규 유입은 둔화됐습니다.", "warning"
         if big and trend_ == "성장":
-            return "경쟁 치열 — 이미 큰 시장인데도 계속 성장하고 있습니다."
+            return "경쟁 치열 — 이미 큰 시장인데도 계속 성장하고 있습니다.", "caution"
         if big and trend_ == "안정":
-            return "성숙 시장 — 규모가 크고 안정적으로 유지되고 있습니다."
+            return "성숙 시장 — 규모가 크고 안정적으로 유지되고 있습니다.", "neutral"
         if not big and trend_ == "성장":
-            return "성장 기회 — 아직 진입자가 적은데 최근 유입이 늘고 있습니다."
+            return "성장 기회 — 아직 진입자가 적은데 최근 유입이 늘고 있습니다.", "positive"
         if not big and trend_ == "위축":
-            return "관망 필요 — 진입자도 적고 최근 유입도 둔화됐습니다."
-        return "틈새 시장 — 소규모지만 꾸준히 유지되고 있습니다."
+            return "관망 필요 — 진입자도 적고 최근 유입도 둔화됐습니다.", "caution"
+        return "틈새 시장 — 소규모지만 꾸준히 유지되고 있습니다.", "neutral"
 
     for r in regions:
         r["tier"] = tier(r["active"])
@@ -1148,7 +1424,7 @@ def render_estimate(d: SiteData) -> str:
         r["growth_pct"] = None if r["growth"] == float("inf") else round(r["growth"] * 100)
         del r["growth"]
         r["ynj_region"] = yanolja_perf.SIDO_TO_REGION.get(r["sido"])
-        r["verdict"] = verdict(r["tier"], r["trend"])
+        r["verdict"], r["verdict_tone"] = verdict(r["tier"], r["trend"])
 
     regions.sort(key=lambda r: -r["active"])
     for i, r in enumerate(regions, 1):
@@ -1202,14 +1478,19 @@ def render_estimate(d: SiteData) -> str:
 </div>
 
 <div id="lkResult" class="lkResult" style="display:none">
-  <div class="rankbadge" id="lkRankBadge"></div>
-  <div class="kpis">
-    <div class="kpi"><div class="l">영업중 호스트</div><div class="v" id="lkActive">-</div></div>
-    <div class="kpi"><div class="l">규모</div><div class="v" id="lkTier">-</div></div>
-    <div class="kpi"><div class="l">최근 6개월 신규</div><div class="v" id="lkRecent">-</div></div>
-    <div class="kpi"><div class="l">직전 6개월 대비</div><div class="v" id="lkGrowth">-</div></div>
+  <div class="verdictCard" id="lkVerdictCard">
+    <div class="vcTop">
+      <div class="vcRegion" id="lkRegionName">-</div>
+      <div class="vcRank" id="lkRankBadge">-</div>
+    </div>
+    <div class="vcVerdict" id="lkVerdict">-</div>
+    <div class="vcStats">
+      <div><div class="vsV" id="lkActive">-</div><div class="vsL">영업중 호스트</div></div>
+      <div><div class="vsV" id="lkTier">-</div><div class="vsL">시장 규모</div></div>
+      <div><div class="vsV" id="lkRecent">-</div><div class="vsL">최근 6개월 신규</div></div>
+      <div><div class="vsV" id="lkGrowth">-</div><div class="vsL">직전 6개월 대비</div></div>
+    </div>
   </div>
-  <div class="note" id="lkTrendNote"></div>
 
   <div class="h2sub" style="margin-top:22px">영업 현황(등록 이력 전체 기준)</div>
   <div class="statusbar" id="lkStatusBar"></div>
@@ -1231,6 +1512,12 @@ def render_estimate(d: SiteData) -> str:
   </div>
   <div id="lkPerfEmpty" class="sub" style="display:none;margin-top:20px">
     이 권역은 야놀자리서치 실적 지표 커버리지 밖입니다(대구·대전·인천·울산·세종).</div>
+
+  <div class="ctaBanner">
+    <div class="t">이 지역에서 시작해보고 싶다면</div>
+    <div class="d">방금 확인한 등록 밀도·증감률을 바탕으로, 위홈에서 호스트로 등록해보세요.</div>
+    <a class="wehomeCta" href="{wehome_cta_url('estimate_result')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
+  </div>
 </div>
 <div id="lkEmpty" class="sub" style="display:none">이 지역은 등록 표본이 없습니다.</div>
 
@@ -1350,14 +1637,19 @@ guEl.addEventListener('change', () => {{
     if (pin) pin.style.display = 'none';
   }}
   if (!r) {{ result.style.display = 'none'; empty.style.display = guEl.value ? 'block' : 'none'; return; }}
+  document.getElementById('lkVerdictCard').dataset.tone = r.verdict_tone;
+  document.getElementById('lkRegionName').textContent = `${{r.sido}} ${{r.sigungu}}`;
   document.getElementById('lkRankBadge').textContent =
-    `전국 ${{r.national_rank}}위 (총 ${{NATIONAL_TOTAL.toLocaleString()}}곳 중) · ${{r.sido}} 내 ${{r.sido_rank}}위 (총 ${{r.sido_total}}곳 중)`;
+    `전국 ${{r.national_rank}}위(${{NATIONAL_TOTAL.toLocaleString()}}곳 중) · ${{r.sido}} 내 ${{r.sido_rank}}위(${{r.sido_total}}곳 중)`;
+  document.getElementById('lkVerdict').textContent = r.verdict;
   document.getElementById('lkActive').textContent = r.active.toLocaleString() + '곳';
   document.getElementById('lkTier').textContent = r.tier;
   document.getElementById('lkRecent').textContent = r.recent6.toLocaleString() + '건';
-  document.getElementById('lkGrowth').textContent =
-    r.growth_pct === null ? '신규' : (r.growth_pct >= 0 ? '+' : '') + r.growth_pct + '%';
-  document.getElementById('lkTrendNote').textContent = r.verdict;
+  const growthEl = document.getElementById('lkGrowth');
+  growthEl.textContent = r.growth_pct === null ? '신규'
+    : (r.growth_pct >= 0 ? `▲+${{r.growth_pct}}%` : `▼${{Math.abs(r.growth_pct)}}%`);
+  growthEl.classList.toggle('up', r.growth_pct !== null && r.growth_pct >= 0);
+  growthEl.classList.toggle('down', r.growth_pct !== null && r.growth_pct < 0);
 
   const statusTotal = r.active + r.pause + r.closed;
   const statusBar = document.getElementById('lkStatusBar');
@@ -1397,7 +1689,7 @@ guEl.addEventListener('change', () => {{
 # ─────────────────────────────────────────────────────── 월간 리포트 상세
 
 def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: dict[str, dict],
-                          demand: dict[str, dict]) -> str:
+                          demand: dict[str, dict], visitors: dict, entry_idx: list[dict]) -> str:
     delta = mom_delta(iss, prev)
     delta_txt = "" if delta is None else f" ({delta:+,} vs {prev.ym})"
 
@@ -1447,11 +1739,19 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
 <th style="text-align:right">폐업</th><th style="text-align:right">누적</th></tr>{cat_rows}</table></div>
 
 {demand_kpis_html(demand)}
+{visitor_demand_html(visitors)}
+{entry_index_html(entry_idx)}
 {inbound_html}
 {perf_table_html(perf)}
 
 <h2>이전 호 대비</h2>
 <div class="note">{('전월(' + prev.ym + ') 대비 외도민업 영업중 ' + format(delta, "+,") + '곳 변화') if prev else '첫 발행호라 비교 대상 없음.'}</div>
+
+<div class="ctaBanner">
+  <div class="t">지금 이 시장에 뛰어들고 싶다면</div>
+  <div class="d">이번 호에서 본 데이터를 바탕으로, 위홈에서 호스트로 시작해보세요.</div>
+  <a class="wehomeCta" href="{wehome_cta_url('report_detail')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
+</div>
 
 {FOOTER}"""
     return page(f"{iss.ym} 리포트", "reports", 1, body,
@@ -1476,7 +1776,8 @@ def build() -> None:
     for i, iss in enumerate(d.all_issues):
         prev = d.all_issues[i + 1] if i + 1 < len(d.all_issues) else None
         (SITE / "report" / f"{iss.ym}.html").write_text(
-            render_report_detail(iss, prev, d.inbound, d.perf, d.demand), encoding="utf-8")
+            render_report_detail(iss, prev, d.inbound, d.perf, d.demand, d.visitors, d.entry_index),
+            encoding="utf-8")
 
     # 구독 즉시발송용 요약. subscribe_server.py 가 매 구독마다 크롤링을 다시
     # 돌리지 않도록, 빌드 시점에 딱 필요한 값만 여기 남겨둔다.

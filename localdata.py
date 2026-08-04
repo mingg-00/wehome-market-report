@@ -147,6 +147,71 @@ class CategoryStats:
         return sorted(out, key=lambda t: -t[1])
 
 
+def entry_index(categories: dict[str, "CategoryStats"], flagship_slug: str = FLAGSHIP,
+                 min_active: int = 20, visitors: dict[str, dict] | None = None) -> list[dict]:
+    """
+    호스트 관점 '진입 적합도 지수' — 야놀자 매력도 지수(관광객 관점, 소셜 감성분석 기반,
+    비공개 가중치)와 달리 행안부 실측 등록 데이터만으로 "지금 이 구에 신규 진입하면
+    다른 구 대비 상대적으로 유리한가"에 답한다. 공식·가중치를 전부 공개할 수 있는 것만
+    쓴다. regional_stats/by_sigungu_status/by_sigungu 모두 이미 수집돼 있어 신규
+    네트워크 호출이 없다.
+
+    기본 축 3개(전부 백분위, 동일가중) — 규모(active)는 의도적으로 뺐다. 넣으면 지수가
+    자치구 순위(district_rank)를 재탕하는 꼴이 된다:
+      growth   — 최근/직전 6개월 신규등록 증감률(모멘텀)
+      survival — 1 - 누적 폐업률(생존력)
+      fit      — 5종 카테고리 전체 공급 중 flagship 비중(수요 적합도 프록시)
+
+    visitors를 주면(tourism_demand.collect_district_visitors()가 만드는 "시도 시군구"
+    키 dict, build_site.py의 d.visitors["district"]) 4번째 축 demand가 추가된다:
+      demand — (외지인+외국인 방문자수) / 영업중 호스트 수. 방문자수를 그냥 백분위로
+               쓰면 인구 많은 대도시가 유리해져 active와 같은 문제(규모 재탕)가
+               생긴다 — 그래서 growth/fit과 같은 이유로 기존 공급(active) 대비 비율로
+               정규화한다. 현지인(거주자) 방문은 관광 수요가 아니라서 뺀다.
+    visitors가 없으면(TOUR_API_KEY 미설정 등) demand 축 없이 3축 그대로 계산한다.
+
+    표본이 min_active 미만이거나 growth가 inf(직전 6개월 신규 0건이라 비율 계산 불가)인
+    구는 "값이 나쁨"이 아니라 "판단 불가"로 보고 뺀다 — 0점으로 채우지 않는다. visitors를
+    줬는데 그 구의 방문자수 매칭이 없어도(TourAPI 커버리지 밖 등) 같은 이유로 뺀다.
+    """
+    flagship = categories[flagship_slug]
+    rows = []
+    for r in flagship.regional_stats():
+        if r["active"] < min_active or r["growth"] == float("inf"):
+            continue
+        region_key = f"{r['sido']} {r['sigungu']}"
+        status = flagship.by_sigungu_status.get(region_key, {})
+        total_gu = r["active"] + status.get("closed", 0) + status.get("pause", 0)
+        supply_total = sum(c.by_sigungu.get(region_key, 0) for c in categories.values())
+        if not total_gu or not supply_total:
+            continue
+        row = {
+            "sido": r["sido"], "sigungu": r["sigungu"], "active": r["active"],
+            "growth": r["growth"],
+            "survival": 1 - status.get("closed", 0) / total_gu,
+            "fit": r["active"] / supply_total,
+        }
+        if visitors is not None:
+            v = visitors.get(region_key)
+            if v is None:
+                continue
+            row["demand"] = (v["외지인"] + v["외국인"]) / r["active"]
+        rows.append(row)
+
+    def pct(vals: list[float], v: float) -> float:
+        return sum(1 for x in vals if x < v) / (len(vals) - 1) * 100 if len(vals) > 1 else 100.0
+
+    axes = ["growth", "survival", "fit"] + (["demand"] if visitors is not None else [])
+    for axis in axes:
+        vals = [r[axis] for r in rows]
+        for r in rows:
+            r[f"pct_{axis}"] = round(pct(vals, r[axis]))
+    for r in rows:
+        r["index"] = round(sum(r[f"pct_{axis}"] for axis in axes) / len(axes))
+
+    return sorted(rows, key=lambda r: -r["index"])
+
+
 def classify(status_name: str) -> str:
     if status_name in CLOSED_STATUSES:
         return "closed"

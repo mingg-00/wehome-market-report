@@ -179,6 +179,115 @@ def test_cohort_survival_excludes_small_cohorts():
     assert ld.cohort_survival(rows, min_cohort_size=30) == {}
 
 
+def test_entry_index_ranks_by_percentile_not_by_size():
+    """규모(active)가 가장 큰 구라도 성장·생존·적합도가 나쁘면 지수 1위가 아니어야 한다 —
+    지수가 그냥 자치구 순위(district_rank) 재탕이면 이 테스트가 깨진다(P2 방지 가드)."""
+    months = ld._last_n_months(12)
+
+    def monthly(recent_n: int) -> dict:
+        return {ym: (recent_n if i >= 6 else 1) for i, ym in enumerate(months)}
+
+    flagship = ld.CategoryStats(
+        "foreigner_city_homestays", "외국인관광도시민박업", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 성장구": 25, "서울특별시 폐업구": 100, "서울특별시 안정구": 25},
+        by_sigungu_monthly={
+            "서울특별시 성장구": monthly(5),
+            "서울특별시 폐업구": monthly(1),
+            "서울특별시 안정구": monthly(1),
+        },
+        by_sigungu_status={
+            "서울특별시 성장구": {"active": 25, "closed": 0, "pause": 0},
+            "서울특별시 폐업구": {"active": 100, "closed": 100, "pause": 0},  # 규모 최대지만 폐업률 50%
+            "서울특별시 안정구": {"active": 25, "closed": 0, "pause": 0},
+        },
+    )
+    other = ld.CategoryStats(
+        "rural_homestays", "농어촌민박", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 폐업구": 900},  # 폐업구는 공급 대부분이 다른 카테고리(적합도 낮음)
+    )
+    categories = {"foreigner_city_homestays": flagship, "rural_homestays": other}
+
+    idx = ld.entry_index(categories, min_active=20)
+    ranked = [r["sigungu"] for r in idx]
+
+    assert ranked[0] == "성장구", "규모가 가장 작아도 성장·생존·적합도가 제일 좋으면 1위여야 한다"
+    assert ranked[-1] == "폐업구", "규모가 가장 커도 폐업률 높고 적합도 낮으면 꼴찌여야 한다"
+    assert all(0 <= r["index"] <= 100 for r in idx)
+
+
+def test_entry_index_excludes_thin_samples():
+    s = ld.CategoryStats("foreigner_city_homestays", "외국인관광도시민박업", 0, 0, 0, 0,
+                          by_sigungu={"서울특별시 소형구": 5},
+                          by_sigungu_monthly={"서울특별시 소형구": {"2026-01": 1}},
+                          by_sigungu_status={"서울특별시 소형구": {"active": 5, "closed": 0, "pause": 0}})
+    assert ld.entry_index({"foreigner_city_homestays": s}, min_active=20) == []
+
+
+def test_entry_index_demand_axis_normalizes_by_active_and_excludes_residents():
+    """방문자수를 active로 나누지 않고 그냥 쓰면(규모 재탕) 매물 많은 구가 유리해진다 —
+    active 축을 의도적으로 뺀 것과 같은 이유로 demand도 정규화해야 한다(P2 방지 가드).
+    현지인(거주자) 방문은 관광 수요가 아니므로 반영되면 안 된다(현지인만 압도적으로
+    큰 매물많은구가 그걸로 1위가 되면 이 테스트가 깨진다)."""
+    months = ld._last_n_months(12)
+
+    def monthly(recent_n: int) -> dict:
+        return {ym: (recent_n if i >= 6 else 1) for i, ym in enumerate(months)}
+
+    flagship = ld.CategoryStats(
+        "foreigner_city_homestays", "외국인관광도시민박업", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 매물많은구": 100, "서울특별시 매물적은구": 20},
+        by_sigungu_monthly={
+            "서울특별시 매물많은구": monthly(3),
+            "서울특별시 매물적은구": monthly(3),
+        },
+        by_sigungu_status={
+            "서울특별시 매물많은구": {"active": 100, "closed": 0, "pause": 0},
+            "서울특별시 매물적은구": {"active": 20, "closed": 0, "pause": 0},
+        },
+    )
+    categories = {"foreigner_city_homestays": flagship}
+    visitors = {
+        # 매물많은구는 현지인(거주자)이 압도적으로 많지만 외지인·외국인(진짜 관광 수요)은
+        # active 대비로 보면 매물적은구보다 적다.
+        "서울특별시 매물많은구": {"현지인": 9_000_000, "외지인": 900, "외국인": 100},  # /100 = 10
+        "서울특별시 매물적은구": {"현지인": 500_000, "외지인": 350, "외국인": 50},      # /20 = 20
+    }
+
+    idx = ld.entry_index(categories, min_active=20, visitors=visitors)
+    by_gu = {r["sigungu"]: r for r in idx}
+
+    assert by_gu["매물적은구"]["demand"] == 20.0
+    assert by_gu["매물많은구"]["demand"] == 10.0
+    assert by_gu["매물적은구"]["pct_demand"] > by_gu["매물많은구"]["pct_demand"]
+
+
+def test_entry_index_excludes_region_without_visitor_match():
+    """visitors를 줬는데 특정 구가 TourAPI 커버리지 밖이면(매칭 없음) '수요 0'이 아니라
+    '판단 불가'로 보고 그 구 자체를 뺀다 — min_active/growth=inf와 같은 원칙."""
+    months = ld._last_n_months(12)
+
+    def monthly(recent_n: int) -> dict:
+        return {ym: (recent_n if i >= 6 else 1) for i, ym in enumerate(months)}
+
+    flagship = ld.CategoryStats(
+        "foreigner_city_homestays", "외국인관광도시민박업", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 매칭구": 25, "서울특별시 미매칭구": 25},
+        by_sigungu_monthly={
+            "서울특별시 매칭구": monthly(3),
+            "서울특별시 미매칭구": monthly(3),
+        },
+        by_sigungu_status={
+            "서울특별시 매칭구": {"active": 25, "closed": 0, "pause": 0},
+            "서울특별시 미매칭구": {"active": 25, "closed": 0, "pause": 0},
+        },
+    )
+    categories = {"foreigner_city_homestays": flagship}
+    visitors = {"서울특별시 매칭구": {"현지인": 0, "외지인": 100, "외국인": 0}}
+
+    idx = ld.entry_index(categories, min_active=20, visitors=visitors)
+    assert [r["sigungu"] for r in idx] == ["매칭구"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
