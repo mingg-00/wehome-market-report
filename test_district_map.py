@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-district_map.py 자체 점검. `python3 -m pytest test_district_map.py`로 실행. 네트워크 없음.
+district_map.py 자체 점검. `python3 test_district_map.py`(또는 pytest)로 실행. 네트워크 없음.
 
 이 모듈은 실측 QA로만 잡힌 버그가 두 번 있었다 — (1) class=nodata를 따옴표 없이 써서
 자기닫힘 태그가 깨지고 뒤따르는 형제 요소가 전부 그 안에 잘못 중첩된 버그, (2) path와
@@ -177,3 +177,20 @@ def test_render_svg_bbox_ignores_unmatched_far_shapes():
               for v in tok.strip().split(",")]
     xs = coords[0::2]
     assert max(xs) - min(xs) > 100, "매칭된 도형이 뷰박스를 채울 만큼 확대돼야 한다"
+
+
+if __name__ == "__main__":
+    # 다른 test_*.py와 달리 여기엔 pytest의 tmp_path 픽스처를 받는 테스트가 섞여 있다 —
+    # 그것만 tempfile로 직접 채워준다. 러너가 아예 없던 탓에 `python3 test_district_map.py`가
+    # 13개를 하나도 안 돌리고 조용히 exit 0을 내던 걸 8/6에 발견해서 붙였다.
+    import inspect
+    import tempfile
+    from pathlib import Path
+
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_"):
+            with tempfile.TemporaryDirectory() as d:
+                needs_tmp = "tmp_path" in inspect.signature(fn).parameters
+                fn(**({"tmp_path": Path(d)} if needs_tmp else {}))
+            print(f"✅ {name}")
+    print("\n통과.")

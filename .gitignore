@@ -5,3 +5,5 @@ subscribers.json
 subscribers.db
 .env
 logs/
+.DS_Store
+TourAPI_Guide_*/

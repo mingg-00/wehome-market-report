@@ -10,18 +10,14 @@ import subscribe_server as srv
 import subscribers as sub
 
 
-def _fake_send_email(to_email, subject, html_body):
-    """
-    email_sender.send_email을 통째로 갈아치운다 — 로컬 .env에 진짜 SMTP 자격증명이
-    채워진 뒤 이 테스트 스위트가 가짜 주소(a@example.com)로 실제 메일을 보내려던 걸
-    실측 중 발견했다(실제 발송 로그가 찍힘). 테스트는 SMTP 설정 여부와 무관하게 항상
-    격리돼야 한다 — is_configured()가 True든 False든 이 파일 안에서는 네트워크를
-    안 탄다.
-    """
-    return {"sent": False, "dry_run": True, "error": None}
-
-
-email_sender.send_email = _fake_send_email
+# 로컬 .env에 진짜 자격증명이 채워진 뒤 이 스위트가 가짜 주소(a@example.com)로 실제
+# 메일을 보내려던 걸 실측 중 발견했다 — 자격증명을 지워서 send_email이 스스로 dry-run
+# 으로 빠지게 한다. 처음엔 send_email 자체를 가짜 함수로 갈아치웠는데, 그러면 복원할
+# 지점이 없어서 같은 pytest 세션의 test_email_sender.py까지 그 가짜를 물고 돌아
+# 거기 Resend 테스트 2개가 항상 dry_run=True로 깨졌다(8/6 pytest 도입하며 발견).
+# 공유 모듈의 함수를 되돌릴 수 없게 바꾸지 말 것 — 값만 바꾸면 저쪽에서 자기가 쓸
+# 키를 직접 세팅했다 되돌리는 기존 패턴과 충돌하지 않는다.
+email_sender.RESEND_API_KEY = ""
 
 
 def _fresh_db():
@@ -116,6 +112,40 @@ def test_subscribe_already_active_skips_mail():
     body = r.get_json()
     assert body["status"] == "already_active"
     assert "mail" not in body, "이미 활성 구독자한텐 메일을 다시 안 보낸다"
+
+
+def test_subscribers_stats_requires_token():
+    """이 엔드포인트는 실배포로 인터넷에 그대로 열려 있다 — 토큰 없이 구독자 수가
+    새면 안 된다."""
+    _fresh_db()
+    assert _client().get("/subscribers").status_code == 403
+    assert _client().get("/subscribers?token=wrong").status_code == 403
+
+
+def test_subscribers_stats_rejects_when_secret_unset():
+    """UNSUB_SECRET이 비어 있을 때 빈 토큰이 빈 비밀값과 '일치'해서 통과해버리는 게
+    제일 흔한 사고다 — 미설정은 무조건 거부여야 한다."""
+    _fresh_db()
+    original = srv.UNSUB_SECRET
+    srv.UNSUB_SECRET = ""
+    try:
+        assert _client().get("/subscribers?token=").status_code == 403
+    finally:
+        srv.UNSUB_SECRET = original
+
+
+def test_subscribers_stats_with_valid_token_returns_counts():
+    _fresh_db()
+    original = srv.UNSUB_SECRET
+    srv.UNSUB_SECRET = "test-secret"
+    try:
+        c = _client()
+        c.post("/subscribe", json={"email": "a@example.com", "consent": True})
+        r = c.get("/subscribers?token=test-secret")
+        assert r.status_code == 200
+        assert r.get_json()["pending_confirm"] == 1
+    finally:
+        srv.UNSUB_SECRET = original
 
 
 if __name__ == "__main__":

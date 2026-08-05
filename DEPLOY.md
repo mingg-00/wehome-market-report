@@ -67,6 +67,17 @@ unreachable`로 죽는 걸 발견했다 — **Railway가 아웃바운드 SMTP(25
 4. Disks 탭에서 persistent disk 추가.
 5. 배포 URL을 `SUBSCRIBE_ENDPOINT`에 반영 → `build_site.py` 재실행.
 
+## /subscribers (집계 조회)
+
+인터넷에 열려 있는 엔드포인트라 토큰이 필요하다. 새 env var를 늘리지 않고
+`UNSUB_SECRET`을 그대로 재사용한다:
+
+```bash
+curl "https://<배포주소>/subscribers?token=$UNSUB_SECRET"
+```
+
+`UNSUB_SECRET`이 비어 있으면 무조건 403 — 미설정이 곧 무방비가 되지 않게.
+
 ## 배포 후 확인
 
 ```bash

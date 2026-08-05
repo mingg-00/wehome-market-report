@@ -26,6 +26,7 @@ CORS가 막혀버린다(SITE_BASE_URL은 이미 로컬에도 채워져 있는 �
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import re
@@ -42,6 +43,7 @@ load_dotenv()
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 LATEST_ISSUE = Path(__file__).parent / "site" / "latest_issue.json"
 ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "").rstrip("/") or "*"
+UNSUB_SECRET = os.getenv("UNSUB_SECRET", "").strip()
 
 app = Flask(__name__)
 
@@ -120,7 +122,13 @@ def unsubscribe():
 
 @app.route("/subscribers", methods=["GET"])
 def list_subscribers():
-    """로컬 확인용 집계치만 반환(개별 이메일 노출 안 함). 실배포 전 인증 추가 검토."""
+    """집계치만 반환(개별 이메일 노출 안 함). 8/6 실배포로 이게 인터넷에 그대로
+    열렸다 — 구독자 수는 대외비라 토큰을 건다. 새 env var를 늘리는 대신 이미 모든
+    환경에 채워져 있는 UNSUB_SECRET을 재사용한다. 비어 있으면 무조건 거부한다 —
+    미설정을 '인증 없음'으로 흘려보내면 배포 환경에서 조용히 무방비가 된다."""
+    token = request.args.get("token", "")
+    if not UNSUB_SECRET or not hmac.compare_digest(token, UNSUB_SECRET):
+        return jsonify(error="unauthorized"), 403
     return jsonify(sub.stats())
 
 
