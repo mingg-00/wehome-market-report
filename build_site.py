@@ -913,9 +913,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .eiRow .eiN{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
 .eiGauge{position:relative;height:10px;border-radius:5px;margin:16px 2px 8px;
  background:linear-gradient(to right,
-   color-mix(in srgb,#E2574C 50%,var(--card)) 0%,
-   color-mix(in srgb,#F0A93E 45%,var(--card)) 50%,
-   color-mix(in srgb,var(--mint) 55%,var(--card)) 100%)}
+   var(--card) 0%,
+   color-mix(in srgb,var(--mint) 65%,var(--card)) 100%)}
 .eiGaugeAvg{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);opacity:.35}
 .eiGaugeMark{position:absolute;top:-5px;width:20px;height:20px;margin-left:-10px;
  border-radius:50%;background:var(--fg);border:3px solid var(--bg);box-shadow:0 1px 4px rgba(0,0,0,.3)}
