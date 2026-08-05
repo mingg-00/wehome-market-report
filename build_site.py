@@ -64,6 +64,10 @@ SUBSCRIBE_ENDPOINT = os.getenv("SUBSCRIBE_ENDPOINT", "http://localhost:5055/subs
 # sitemap.xml·robots.txt·OG 태그의 절대 URL 기준. email_sender.py의 SITE_BASE_URL과
 # 같은 env var — 비어 있으면(로컬 개발 중) sitemap/OG url을 만들지 않고 조용히 뺀다.
 SITE_BASE_URL = os.getenv("SITE_BASE_URL", "").rstrip("/")
+# GA4 측정 ID(G-XXXXXXXXXX, analytics.google.com에서 발급). 실행계획 08-10 "KPI 계측
+# 세팅"의 전제 — 위홈 유입·트래픽 집계가 이 스크립트에 의존한다. 미설정이면(로컬
+# 개발, 계정 발급 전) 조용히 빼서 개발 중 로컬 트래픽이 실제 속성에 안 섞이게 한다.
+GA4_MEASUREMENT_ID = os.getenv("GA4_MEASUREMENT_ID", "").strip()
 CATEGORY_ORDER = ["foreigner_city_homestays", "hanok_experience", "tourist_pensions",
                    "tourist_accommodations", "rural_homestays"]
 SEOUL, BUSAN = "서울특별시", "부산광역시"
@@ -1022,6 +1026,12 @@ def page(title: str, active: str, depth: int, body: str, description: str = "", 
     않기 위해서다. 로고·대표 이미지 에셋이 없어 og:image는 뺐다.
     """
     full_title = f"{title} · {TITLE}"
+    ga4 = ""
+    if GA4_MEASUREMENT_ID:
+        ga4 = (f'<script async src="https://www.googletagmanager.com/gtag/js?id={GA4_MEASUREMENT_ID}"></script>\n'
+               f"<script>window.dataLayer=window.dataLayer||[];"
+               f"function gtag(){{dataLayer.push(arguments)}}"
+               f"gtag('js',new Date());gtag('config','{GA4_MEASUREMENT_ID}');</script>\n")
     og = ""
     if SITE_BASE_URL:
         url = f"{SITE_BASE_URL}/{path}"
@@ -1035,7 +1045,7 @@ def page(title: str, active: str, depth: int, body: str, description: str = "", 
     return f"""<title>{full_title}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{description}">
-{og}<style>{CSS}</style>
+{ga4}{og}<style>{CSS}</style>
 {nav(active, depth)}
 <div class="wrap{' wide' if wide else ''}">
 {body}
