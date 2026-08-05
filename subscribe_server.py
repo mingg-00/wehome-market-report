@@ -32,6 +32,7 @@ import os
 import re
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
@@ -49,9 +50,23 @@ app = Flask(__name__)
 
 
 def _latest_issue() -> dict | None:
-    if not LATEST_ISSUE.exists():
-        return None
-    return json.loads(LATEST_ISSUE.read_text(encoding="utf-8"))
+    """빌드 산출물(site/)은 Vercel에만 있고 이 서버(Railway)엔 없다 — .gitignore에
+    걸려 저장소에 안 들어가기 때문이다. 로컬 파일만 보면 프로덕션에선 항상 None이라
+    /confirm이 인증 완료 메일을 조용히 안 보낸다(8/6 실측 발견 — 인증은 성공하는데
+    최신호 요약만 안 나가서 눈에 안 띄었다). 배포된 사이트에서 가져오고, 실패하거나
+    SITE_BASE_URL이 없는 로컬 개발에선 파일로 폴백한다. 여기서 못 가져와도 인증
+    자체는 이미 끝난 뒤라 예외를 밖으로 던지지 않는다."""
+    base = email_sender.SITE_BASE_URL
+    if base:
+        try:
+            r = requests.get(f"{base}/latest_issue.json", timeout=10)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            print(f"  ⚠️  latest_issue.json 조회 실패({base}) — {type(e).__name__}: {e}")
+    if LATEST_ISSUE.exists():
+        return json.loads(LATEST_ISSUE.read_text(encoding="utf-8"))
+    return None
 
 
 @app.after_request

@@ -4,6 +4,9 @@
 import json
 import os
 import tempfile
+from pathlib import Path
+
+import requests
 
 import email_sender
 import subscribe_server as srv
@@ -18,6 +21,9 @@ import subscribers as sub
 # 공유 모듈의 함수를 되돌릴 수 없게 바꾸지 말 것 — 값만 바꾸면 저쪽에서 자기가 쓸
 # 키를 직접 세팅했다 되돌리는 기존 패턴과 충돌하지 않는다.
 email_sender.RESEND_API_KEY = ""
+# 같은 이유로 SITE_BASE_URL도 비운다 — 로컬 .env엔 실제 Vercel 주소가 채워져 있어서
+# 그냥 두면 _latest_issue()가 테스트 중에 진짜 HTTP 요청을 날린다.
+email_sender.SITE_BASE_URL = ""
 
 
 def _fresh_db():
@@ -112,6 +118,49 @@ def test_subscribe_already_active_skips_mail():
     body = r.get_json()
     assert body["status"] == "already_active"
     assert "mail" not in body, "이미 활성 구독자한텐 메일을 다시 안 보낸다"
+
+
+def test_latest_issue_fetches_from_deployed_site():
+    """서버(Railway)엔 site/가 없다 — 배포된 사이트에서 가져와야 한다. 로컬 파일만
+    보던 탓에 프로덕션에서 인증 완료 메일이 안 나가던 게 이 테스트의 존재 이유."""
+    original = email_sender.SITE_BASE_URL
+    original_get = requests.get
+    email_sender.SITE_BASE_URL = "https://example.com"
+
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return {"ym": "2026-08", "active": 1, "seoul_share": 0.5,
+                                "top_district": "마포구"}
+
+    urls = []
+    requests.get = lambda url, timeout: (urls.append(url), FakeResp())[1]
+    try:
+        assert srv._latest_issue()["ym"] == "2026-08"
+        assert urls == ["https://example.com/latest_issue.json"]
+    finally:
+        email_sender.SITE_BASE_URL = original
+        requests.get = original_get
+
+
+def test_latest_issue_falls_back_when_fetch_fails():
+    """가져오기가 실패해도 /confirm은 이미 인증을 끝낸 뒤다 — 예외가 밖으로 새면
+    사용자는 인증이 실패한 줄 안다."""
+    original = email_sender.SITE_BASE_URL
+    original_get = requests.get
+    original_path = srv.LATEST_ISSUE
+    email_sender.SITE_BASE_URL = "https://example.com"
+
+    def boom(url, timeout):
+        raise requests.ConnectionError("network down")
+
+    requests.get = boom
+    srv.LATEST_ISSUE = Path("/nonexistent/latest_issue.json")
+    try:
+        assert srv._latest_issue() is None
+    finally:
+        email_sender.SITE_BASE_URL = original
+        requests.get = original_get
+        srv.LATEST_ISSUE = original_path
 
 
 def test_subscribers_stats_requires_token():
