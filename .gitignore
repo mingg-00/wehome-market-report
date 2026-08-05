@@ -4,3 +4,4 @@ site/
 subscribers.json
 subscribers.db
 .env
+logs/

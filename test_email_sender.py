@@ -34,6 +34,33 @@ def test_dry_run_when_smtp_not_configured():
     assert result == {"sent": False, "dry_run": True, "error": None}
 
 
+def test_confirm_token_is_deterministic_and_verifiable():
+    t1 = es.confirm_token("a@example.com")
+    t2 = es.confirm_token("a@example.com")
+    assert t1 == t2
+    assert es.verify_confirm_token("a@example.com", t1) is True
+
+
+def test_confirm_token_differs_from_unsubscribe_token():
+    """같은 비밀값을 재사용하니, 접두어 없이 email만 서명하면 두 토큰이 같아져서
+    인증 링크로 수신거부를 트리거하는(또는 그 반대) 재생 공격이 가능해진다."""
+    assert es.confirm_token("a@example.com") != es.unsubscribe_token("a@example.com")
+
+
+def test_verify_confirm_token_rejects_wrong_token():
+    assert es.verify_confirm_token("a@example.com", "wrong-token") is False
+
+
+def test_verify_confirm_token_rejects_unsubscribe_token_for_same_email():
+    """수신거부 링크를 그대로 인증 링크에 넣어도 통과하면 안 된다."""
+    assert es.verify_confirm_token("a@example.com", es.unsubscribe_token("a@example.com")) is False
+
+
+def test_render_confirm_email_contains_confirm_link():
+    html = es.render_confirm_email("https://example.com/confirm?email=a@x.com&token=abc")
+    assert "https://example.com/confirm?email=a@x.com&token=abc" in html
+
+
 def test_render_issue_email_contains_key_fields():
     html = es.render_issue_email("2026-07", 10894, 0.63, "마포구",
                                   "https://example.com/report/2026-07.html",

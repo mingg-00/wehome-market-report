@@ -44,6 +44,7 @@ import localdata
 import news
 import regulation
 import safestay
+import subscribers
 import tourism_demand
 import viz
 import yanolja_perf
@@ -60,6 +61,9 @@ TITLE = "공유숙박 마켓리포트"
 # 새로 열 때마다 URL이 바뀌므로, 코드를 고치는 대신 .env의 SUBSCRIBE_ENDPOINT만
 # 갈아끼우고 build_site.py 를 다시 돌리면 된다.
 SUBSCRIBE_ENDPOINT = os.getenv("SUBSCRIBE_ENDPOINT", "http://localhost:5055/subscribe")
+# sitemap.xml·robots.txt·OG 태그의 절대 URL 기준. email_sender.py의 SITE_BASE_URL과
+# 같은 env var — 비어 있으면(로컬 개발 중) sitemap/OG url을 만들지 않고 조용히 뺀다.
+SITE_BASE_URL = os.getenv("SITE_BASE_URL", "").rstrip("/")
 CATEGORY_ORDER = ["foreigner_city_homestays", "hanok_experience", "tourist_pensions",
                    "tourist_accommodations", "rural_homestays"]
 SEOUL, BUSAN = "서울특별시", "부산광역시"
@@ -586,15 +590,26 @@ def chart_category_compare(categories: dict[str, localdata.CategoryStats]) -> st
                         mint=lambda label, i: label == "외국인관광도시민박업", label_w=168)
 
 
+def _bar_cell(value: float, max_value: float, fmt: str = "{:,.0f}", color: str = "var(--mint)") -> str:
+    """표 셀 안에 넣는 인라인 막대 — estimate.html의 .rankrow/.eiBar와 같은 시각 언어를
+    대시보드·리포트 표에도 맞춘다(숫자만 나열되면 읽기 어렵다는 피드백에 대한 대응).
+    표 하나에 여러 칼럼이 있어도 이야기의 핵심 칼럼 하나에만 쓴다 — 칸마다 막대를 넣으면
+    오히려 산만해진다(포화 신호 표가 growth% 칼럼 하나만 색칠하는 것과 같은 원칙)."""
+    pct = round(value / max_value * 100) if max_value else 0
+    return (f'<div class="tblbar"><div class="bw"><div class="bf" style="width:{pct}%;background:{color}"></div></div>'
+            f'<span>{fmt.format(value)}</span></div>')
+
+
 def perf_table_html(perf: dict[str, dict]) -> str:
     """
     숙박업 실적 지표(평균 객단가·객실 점유율·객실당매출) 테이블 — 대시보드와 월간
     리포트 상세가 같은 마크업을 쓴다(중복 방지). estimate.html의 지역별 조회는
     같은 데이터를 다른 레이아웃(KPI 카드)으로 보여주므로 여기 재사용하지 않는다.
     """
+    max_revpar = max((s["revpar"] for s in perf.values()), default=1)
     rows = "".join(
         f'<tr><td>{region}</td><td class=n>{s["adr"]:,.0f}원</td>'
-        f'<td class=n>{s["occ"]:.1f}%</td><td class=n>{s["revpar"]:,.0f}원</td></tr>'
+        f'<td class=n>{s["occ"]:.1f}%</td><td class=n>{_bar_cell(s["revpar"], max_revpar, "{:,.0f}원")}</td></tr>'
         for region, s in sorted(perf.items(), key=lambda kv: -kv[1]["revpar"])
     )
     ym = next(iter(perf.values()))["ym"] if perf else None
@@ -645,13 +660,17 @@ def visitor_demand_html(visitors: dict) -> str:
     province, district, ymd = visitors.get("province"), visitors.get("district"), visitors.get("ymd")
     if not province:
         return ""
+    prov_top = sorted(province.items(), key=lambda kv: -kv[1]["total"])[:10]
+    max_prov = prov_top[0][1]["total"] if prov_top else 1
     prov_rows = "".join(
-        f"<tr><td>{i}</td><td>{area}</td><td class=n>{v['total']:,.0f}</td></tr>"
-        for i, (area, v) in enumerate(sorted(province.items(), key=lambda kv: -kv[1]["total"])[:10], 1)
+        f"<tr><td>{i}</td><td>{area}</td><td class=n>{_bar_cell(v['total'], max_prov)}</td></tr>"
+        for i, (area, v) in enumerate(prov_top, 1)
     )
+    dist_top = sorted(district.items(), key=lambda kv: -kv[1]["total"])[:10]
+    max_dist = dist_top[0][1]["total"] if dist_top else 1
     dist_rows = "".join(
-        f"<tr><td>{i}</td><td>{area}</td><td class=n>{v['total']:,.0f}</td></tr>"
-        for i, (area, v) in enumerate(sorted(district.items(), key=lambda kv: -kv[1]["total"])[:10], 1)
+        f"<tr><td>{i}</td><td>{area}</td><td class=n>{_bar_cell(v['total'], max_dist)}</td></tr>"
+        for i, (area, v) in enumerate(dist_top, 1)
     )
     ymd_disp = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}"
     return f"""
@@ -680,7 +699,7 @@ def entry_index_html(entry_idx: list[dict]) -> str:
         f"<tr><td>{i}</td><td>{r['sido']} {r['sigungu']}</td>"
         f"<td class=n>{r['pct_growth']}</td><td class=n>{r['pct_survival']}</td><td class=n>{r['pct_fit']}</td>"
         + (f"<td class=n>{r['pct_demand']}</td>" if has_demand else "")
-        + f"<td class=n><b>{r['index']}</b></td></tr>"
+        + f"<td class=n>{_bar_cell(r['index'], 100)}</td></tr>"
         for i, r in enumerate(entry_idx[:10], 1)
     )
     axes_desc = ("성장·생존·적합도·수요 4축" if has_demand else
@@ -786,23 +805,30 @@ h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--
 .statusbar .seg.active{background:var(--mint)}
 .statusbar .seg.pause{background:#F0A93E}
 .statusbar .seg.closed{background:var(--line)}
-.statuslegend{display:flex;gap:16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+.statuslegend{display:flex;gap:16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap;margin-bottom:4px}
 .statuslegend .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
 .statuslegend .dot.active{background:var(--mint)}
 .statuslegend .dot.pause{background:#F0A93E}
 .statuslegend .dot.closed{background:var(--line)}
-.trendspark{display:flex;gap:4px;margin:10px 0 4px}
-.trendspark .tcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
-.trendspark .tbarwrap{width:100%;height:52px;background:var(--card);border-radius:3px;
+.trendspark{display:flex;gap:4px;margin:14px 0 4px}
+.trendspark .tcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
+.trendspark .tcol.tboundary{border-left:1px dashed var(--line);margin-left:3px;padding-left:3px}
+.trendspark .tval{font-size:10px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.trendspark .tcol.trecent .tval{color:var(--fg)}
+.trendspark .tbarwrap{width:100%;height:56px;background:var(--card);border-radius:3px;
  position:relative;overflow:hidden}
-.trendspark .tbar{position:absolute;bottom:0;left:0;width:100%;background:var(--mint);
- border-radius:2px 2px 0 0;min-height:2px}
+.trendspark .tbar{position:absolute;bottom:0;left:0;width:100%;background:var(--muted);
+ border-radius:2px 2px 0 0;min-height:2px;opacity:.55}
+.trendspark .tbar.trecentbar{background:var(--mint);opacity:1}
 .trendspark .tlabel{font-size:9px;color:var(--muted);white-space:nowrap}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
-th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 th{color:var(--muted);font-weight:700;font-size:11.5px;text-transform:uppercase}
 td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+.tblbar{display:inline-flex;align-items:center;justify-content:flex-end;gap:8px}
+.tblbar .bw{width:56px;height:6px;background:var(--card);border-radius:3px;overflow:hidden;flex-shrink:0}
+.tblbar .bf{display:block;height:100%;border-radius:3px}
 .note{background:var(--card);border-left:3px solid var(--mint);border-radius:0 10px 10px 0;
  padding:14px 16px;font-size:13px;color:var(--muted);margin:18px 0;line-height:1.6}
 .note.warn{border-left-color:#F0A93E}
@@ -874,10 +900,32 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .vsV{font-size:22px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .vsV.up{color:var(--mint)} .vsV.down{color:#E2574C}
 .vsL{font-size:11.5px;color:var(--muted);margin-top:3px}
+.eiScore{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.eiScoreV{font-size:32px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.eiScoreMax{font-size:14px;color:var(--muted);font-weight:700}
+.eiScoreRank{margin-left:6px;font-size:12.5px;color:var(--muted);font-weight:600}
+.eiAxes{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+.eiRow{display:grid;grid-template-columns:52px 1fr 30px;gap:10px;align-items:center;font-size:12.5px}
+.eiRow .eiL{color:var(--muted)}
+.eiBarWrap{background:var(--card);border-radius:5px;height:8px;overflow:hidden}
+.eiBar{background:var(--mint);height:100%;border-radius:5px}
+.eiRow .eiN{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.eiGauge{position:relative;height:10px;border-radius:5px;margin:16px 2px 8px;
+ background:linear-gradient(to right,
+   color-mix(in srgb,#E2574C 50%,var(--card)) 0%,
+   color-mix(in srgb,#F0A93E 45%,var(--card)) 50%,
+   color-mix(in srgb,var(--mint) 55%,var(--card)) 100%)}
+.eiGaugeAvg{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);opacity:.35}
+.eiGaugeMark{position:absolute;top:-5px;width:20px;height:20px;margin-left:-10px;
+ border-radius:50%;background:var(--fg);border:3px solid var(--bg);box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.eiGaugeLabels{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin:0 2px}
+.eiGaugeCompare{font-size:12.5px;color:var(--muted);margin-top:10px}
 .ranklist{display:flex;flex-direction:column;gap:2px;margin-top:14px}
 .rankrow{display:grid;grid-template-columns:26px 1fr 3fr auto;gap:10px;align-items:center;
  padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px}
 .rankrow:hover{background:var(--card)}
+.rankrow:focus-visible{outline:2px solid var(--mint);outline-offset:-2px;background:var(--card)}
+#lkMapWrap path[data-name]:focus-visible{outline:2px solid var(--mint);outline-offset:1px}
 .rankrow.sel{background:color-mix(in srgb,var(--mint) 14%,transparent);font-weight:800}
 .rankrow .rn{color:var(--muted);font-size:12px;text-align:right}
 .rankrow .rname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -922,6 +970,8 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 .consent{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--muted);
  margin-top:12px;line-height:1.5}
 .consent input{margin-top:3px}
+.catpicker{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:var(--muted)}
+.catpicker label{display:flex;align-items:center;gap:6px;cursor:pointer}
 .formMsg{font-size:13px;margin-top:10px;font-weight:600}
 .formMsg.ok{color:var(--mint)} .formMsg.err{color:#E2574C}
 .wehomeCta{display:inline-block;margin-top:14px;padding:12px 22px;border-radius:10px;
@@ -932,6 +982,16 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  padding:22px 24px;margin:24px 0;text-align:center}
 .ctaBanner .t{font-weight:750;font-size:16px}
 .ctaBanner .d{font-size:13.5px;color:var(--muted);margin-top:6px}
+.searchBox{position:relative;margin:20px 0}
+.searchBox input{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--line);
+ background:var(--bg);color:var(--fg);font-size:14px}
+.searchResults{display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;
+ background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;
+ max-height:360px;overflow-y:auto;z-index:5;box-shadow:0 8px 24px rgba(0,0,0,.15)}
+.searchResultItem{display:block;padding:9px 10px;border-radius:8px;text-decoration:none;
+ color:var(--fg);font-size:13.5px;line-height:1.4}
+.searchResultItem:hover{background:var(--bg)}
+.searchResultItem .srType{display:block;font-size:10.5px;color:var(--mint);font-weight:700;margin-bottom:2px}
 """
 
 
@@ -953,11 +1013,29 @@ def nav(active: str, depth: int = 0) -> str:
 </div></nav>"""
 
 
-def page(title: str, active: str, depth: int, body: str, description: str = "", wide: bool = False) -> str:
-    return f"""<title>{title} · {TITLE}</title>
+def page(title: str, active: str, depth: int, body: str, description: str = "", wide: bool = False,
+          path: str = "") -> str:
+    """
+    path는 이 페이지의 site/ 루트 기준 상대경로(예: "dashboard.html", "report/2026-08.html",
+    루트면 "") — canonical·OG url을 절대경로로 만드는 데만 쓴다. SITE_BASE_URL이 없으면
+    (로컬 개발) 이 태그들을 아예 안 낸다 — 가짜 도메인을 SNS 공유 미리보기에 노출시키지
+    않기 위해서다. 로고·대표 이미지 에셋이 없어 og:image는 뺐다.
+    """
+    full_title = f"{title} · {TITLE}"
+    og = ""
+    if SITE_BASE_URL:
+        url = f"{SITE_BASE_URL}/{path}"
+        og = (f'<link rel="canonical" href="{url}">\n'
+              f'<meta property="og:type" content="website">\n'
+              f'<meta property="og:site_name" content="{TITLE}">\n'
+              f'<meta property="og:title" content="{full_title}">\n'
+              f'<meta property="og:description" content="{description}">\n'
+              f'<meta property="og:url" content="{url}">\n'
+              f'<meta name="twitter:card" content="summary">\n')
+    return f"""<title>{full_title}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{description}">
-<style>{CSS}</style>
+{og}<style>{CSS}</style>
 {nav(active, depth)}
 <div class="wrap{' wide' if wide else ''}">
 {body}
@@ -980,23 +1058,24 @@ document.getElementById('subForm').addEventListener('submit', async (e) => {{
   e.preventDefault();
   const email = document.getElementById('subEmail').value.trim();
   const consent = document.getElementById('subConsent').checked;
+  const categories = [...document.querySelectorAll('.subCategory:checked')].map(el => el.value);
   const msg = document.getElementById('subMsg');
   if (!consent) {{ msg.textContent = '수신 동의가 필요합니다.'; msg.className = 'formMsg err'; return; }}
   try {{
     const res = await fetch('{SUBSCRIBE_ENDPOINT}', {{
       method: 'POST', headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{email, consent}})
+      body: JSON.stringify({{email, consent, categories}})
     }});
     const data = await res.json();
     if (res.ok) {{
       if (data.status === 'already_active') {{
         msg.textContent = '이미 구독 중인 이메일입니다.';
       }} else if (data.mail && data.mail.dry_run) {{
-        msg.textContent = '구독 완료 — 단, 지금은 개발 환경이라 확인 메일은 실제 발송되지 않았습니다.';
+        msg.textContent = '인증 메일을 보내드리려 했지만, 지금은 개발 환경이라 실제 발송되지 않았습니다.';
       }} else if (data.mail && data.mail.sent) {{
-        msg.textContent = '구독 완료 — 확인 메일을 보내드렸습니다.';
+        msg.textContent = '이메일함에서 인증 링크를 눌러주세요 — 인증을 완료하면 구독이 시작됩니다.';
       }} else {{
-        msg.textContent = '구독은 저장됐지만 메일 발송에 실패했습니다: ' + (data.mail && data.mail.error || '');
+        msg.textContent = '요청은 저장됐지만 인증 메일 발송에 실패했습니다: ' + (data.mail && data.mail.error || '');
       }}
       msg.className = 'formMsg ok';
       e.target.reset();
@@ -1082,6 +1161,10 @@ def render_landing(d: SiteData) -> str:
     <input type="email" id="subEmail" placeholder="you@example.com" required>
     <button type="submit">구독하기</button>
   </form>
+  <div class="catpicker">
+    {"".join(f'<label><input type="checkbox" class="subCategory" value="{k}" checked>{v}</label>'
+             for k, v in subscribers.CATEGORIES.items())}
+  </div>
   <label class="consent">
     <input type="checkbox" id="subConsent" required>
     이메일 주소를 리포트 발송 목적으로만 수집·이용하는 데 동의합니다. 그 외 용도로 쓰지 않으며 언제든 삭제를 요청할 수 있습니다.
@@ -1093,7 +1176,22 @@ def render_landing(d: SiteData) -> str:
 {SUBSCRIBE_FORM_JS}"""
     return page("숫자로 읽는 공유숙박 시장", "landing", 0, body,
                 "행정안전부 원본 데이터 기반 공유숙박 시장 월간 리포트. "
-                f"외도민업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}.")
+                f"외도민업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}.", path="")
+
+
+def bills_html(reg_bills: dict[str, list[regulation.BillMatch]]) -> str:
+    """TRACKED_ACTS(현재 관광진흥법 하나) 계류 법안 카드 — 대시보드와 estimate.html이 같은
+    마크업을 쓴다(perf_table_html과 동일한 이유로 중복 방지). 법 개정은 전국 공통이라
+    지역을 어디로 고르든 똑같이 적용된다."""
+    out = ""
+    for act, matches in reg_bills.items():
+        for b in matches:
+            out += (f'<div class="billcard"><b>⚖️ {b.title}</b>'
+                     f'<div class="meta">의안번호 {b.bill_no} · {b.committee} · '
+                     f'조회 {b.views:,} · <a href="{b.url}" target="_blank" rel="noopener">원문</a></div></div>')
+    if not out:
+        out = f'<div class="sub">추적 중인 법률({", ".join(reg_bills)}) 개정안이 현재 계류 중이지 않습니다.</div>'
+    return out
 
 
 # ─────────────────────────────────────────────────────── 대시보드
@@ -1121,14 +1219,7 @@ def render_dashboard(d: SiteData) -> str:
         for i in d.reg_items[:8]
     ) or '<div class="sub">이번 갱신 기준 키워드에 매칭되는 새 발표가 없습니다.</div>'
 
-    bills_html = ""
-    for act, matches in d.reg_bills.items():
-        for b in matches:
-            bills_html += (f'<div class="billcard"><b>⚖️ {b.title}</b>'
-                            f'<div class="meta">의안번호 {b.bill_no} · {b.committee} · '
-                            f'조회 {b.views:,} · <a href="{b.url}" target="_blank" rel="noopener">원문</a></div></div>')
-    if not bills_html:
-        bills_html = f'<div class="sub">추적 중인 법률({", ".join(d.reg_bills)}) 개정안이 현재 계류 중이지 않습니다.</div>'
+    bills_block = bills_html(d.reg_bills)
 
     body = f"""
 <div class="kicker">MARKET DASHBOARD</div>
@@ -1187,7 +1278,7 @@ def render_dashboard(d: SiteData) -> str:
 
 <h2>이번 달 계류 법안</h2>
 <div class="h2sub">국회 입법예고 기준 상시 추적.</div>
-{bills_html}
+{bills_block}
 
 <h2>규제·정책 동향</h2>
 <div class="h2sub">문체부·정책브리핑 자동 수집 · 공유숙박 키워드 매칭</div>
@@ -1251,10 +1342,44 @@ def render_dashboard(d: SiteData) -> str:
 </script>"""
     return page("대시보드", "dashboard", 0, body,
                 f"외국인관광도시민박업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}. "
-                "행정안전부 공공데이터 기반 공유숙박 시장 대시보드.")
+                "행정안전부 공공데이터 기반 공유숙박 시장 대시보드.", path="dashboard.html")
 
 
 # ─────────────────────────────────────────────────────── 리포트 아카이브
+
+def search_box_html() -> str:
+    """
+    뉴스+리포트 통합 검색 — build()가 만드는 site/search-index.json을 fetch해
+    클라이언트에서 필터링한다. 정적 사이트라 서버 검색엔진을 새로 두는 대신,
+    이 규모(수백 건)엔 클라이언트 필터링으로 충분하다고 판단. news.html·
+    reports.html 둘 다 depth 0(사이트 루트)라 상대경로 하나로 같이 쓴다.
+    """
+    return """
+<div class="searchBox">
+  <input type="search" id="siteSearch" placeholder="뉴스·리포트 검색…" autocomplete="off">
+  <div id="siteSearchResults" class="searchResults"></div>
+</div>
+<script>
+(function() {
+  let INDEX = null;
+  const input = document.getElementById('siteSearch');
+  const results = document.getElementById('siteSearchResults');
+  input.addEventListener('input', async () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { results.style.display = 'none'; results.innerHTML = ''; return; }
+    if (!INDEX) INDEX = await fetch('search-index.json').then(r => r.json());
+    const matches = INDEX.filter(it =>
+      it.title.toLowerCase().includes(q) || (it.source || '').toLowerCase().includes(q)
+    ).slice(0, 20);
+    results.innerHTML = matches.length
+      ? matches.map(it => `<a class="searchResultItem" href="${it.url}" ${it.type === 'news' ? 'target="_blank" rel="noopener"' : ''}>
+          <span class="srType">${it.type === 'news' ? it.source : '월간 리포트'}</span>${it.title}</a>`).join('')
+      : '<div class="sub" style="padding:10px 4px">검색 결과가 없습니다.</div>';
+    results.style.display = 'block';
+  });
+})();
+</script>"""
+
 
 def render_reports_index(d: SiteData) -> str:
     cards = "".join(
@@ -1268,9 +1393,10 @@ def render_reports_index(d: SiteData) -> str:
 <div class="kicker">MONTHLY REPORTS</div>
 <h1>월간 리포트 아카이브</h1>
 <div class="sub">매월 발행. 지난 호는 계속 보관됩니다.</div>
+{search_box_html()}
 <div class="archive" style="margin-top:24px">{cards}</div>
 {FOOTER}"""
-    return page("월간 리포트", "reports", 0, body, "공유숙박 시장 월간 리포트 발행 이력.")
+    return page("월간 리포트", "reports", 0, body, "공유숙박 시장 월간 리포트 발행 이력.", path="reports.html")
 
 
 # ─────────────────────────────────────────────────────── 뉴스 아카이브
@@ -1323,11 +1449,12 @@ def render_news(d: SiteData) -> str:
 <div class="sub">산업 미디어 {len(by_source)}개 소스 자동 수집 · 소스당 5건 표시, 화살표를
 누르면 해당 사이트로 이동 · 전체 {len(d.news_items):,}건 수집됨. "공유숙박" 표시는
 규제·정책 키워드 매칭 여부.</div>
+{search_box_html()}
 <div class="newsgrid">{cols}</div>
 {FOOTER}"""
     return page("뉴스", "news", 0, body,
                 f"공유숙박·숙박업 산업 뉴스 자동 수집 아카이브. {len(by_source)}개 소스, "
-                f"{len(d.news_items):,}건.", wide=True)
+                f"{len(d.news_items):,}건.", wide=True, path="news.html")
 
 
 # ─────────────────────────────────────────────────────── 경쟁사 뉴스룸 동향
@@ -1368,7 +1495,8 @@ def render_competitors(d: SiteData) -> str:
 <div class="compgrid">{cols}</div>
 {FOOTER}"""
     return page("글로벌 OTA 뉴스룸", "competitors", 0, body,
-                "위홈·에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 보도자료 자동 수집.", wide=True)
+                "위홈·에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 보도자료 자동 수집.", wide=True,
+                path="competitors.html")
 
 
 # ─────────────────────────────────────────────────────── 지역별 시장 지표
@@ -1441,6 +1569,16 @@ def render_estimate(d: SiteData) -> str:
         for r in group:
             r["sido_total"] = len(group)
 
+    # 진입 적합도 지수(localdata.entry_index, d.entry_index) — 대시보드 TOP10 표와 같은
+    # 원본을 여기 구 단위 조회에도 붙인다. min_active 미만·growth=inf·방문자수 매칭 없음 등
+    # 으로 지수 계산에서 빠진 구는 entry가 None — 0점으로 채우지 않고 "산정 불가"로 안내한다.
+    entry_by_region = {f"{e['sido']} {e['sigungu']}": {**e, "ei_rank": i}
+                        for i, e in enumerate(d.entry_index, 1)}
+    ei_total = len(d.entry_index)
+    ei_avg = round(statistics.mean(e["index"] for e in d.entry_index)) if d.entry_index else 0
+    for r in regions:
+        r["entry"] = entry_by_region.get(f"{r['sido']} {r['sigungu']}")
+
     # 시군구 지도는 시도당 최대 240KB(전남광주통합, 섬 많은 해안선 탓)라 estimate.html에
     # 그대로 박아 넣으면 페이지 전체가 그만큼 무거워진다 — 시도별 SVG 파일로 따로 써 두고
     # 선택 시점에만 fetch()로 가져온다(대부분 사용자는 1~2개 시도만 조회한다).
@@ -1458,6 +1596,7 @@ def render_estimate(d: SiteData) -> str:
     perf_ym = next(iter(d.perf.values()))["ym"] if d.perf else None
     perf_note = (f" · 야놀자리서치 실적 지표(공유숙박 부문, {perf_ym[:4]}-{perf_ym[4:]} 기준, "
                  f"광역 {len(d.perf)}개 권역)도 함께 표시됩니다." if perf_ym else "")
+    bills_block = bills_html(d.reg_bills)
 
     body = f"""
 <div class="kicker">HOST MARKET LOOKUP</div>
@@ -1492,18 +1631,37 @@ def render_estimate(d: SiteData) -> str:
     </div>
   </div>
 
-  <div class="h2sub" style="margin-top:22px">영업 현황(등록 이력 전체 기준)</div>
+  <h2 style="margin-top:26px">진입 적합도 지수</h2>
+  <div class="sub" style="margin:-4px 0 6px">등록 데이터(성장·생존·적합도)와 방문자수(수요)를 결합한
+  자체 지수, 백분위 평균입니다. 규모(호스트 수)는 의도적으로 제외했습니다.</div>
+  <div id="lkEi">
+    <div class="eiScore">
+      <span class="eiScoreV" id="lkEiScore">-</span><span class="eiScoreMax">/100</span>
+      <span class="eiScoreRank" id="lkEiRank"></span>
+    </div>
+    <div class="eiGauge" id="lkEiGauge">
+      <div class="eiGaugeAvg" id="lkEiGaugeAvg"></div>
+      <div class="eiGaugeMark" id="lkEiGaugeMark"></div>
+    </div>
+    <div class="eiGaugeLabels"><span>포화·위축</span><span>성장 기회</span></div>
+    <div class="eiGaugeCompare" id="lkEiCompare"></div>
+    <div class="eiAxes" id="lkEiAxes"></div>
+  </div>
+  <div id="lkEiEmpty" class="sub" style="display:none">영업중 호스트가 너무 적거나 최근 6개월
+  신규등록이 없어(비교 불가) 이 지역은 지수를 계산할 수 없습니다.</div>
+
+  <h2 style="margin-top:36px;padding-top:18px">영업 현황(등록 이력 전체 기준)</h2>
   <div class="statusbar" id="lkStatusBar"></div>
   <div class="statuslegend" id="lkStatusLegend"></div>
 
-  <div class="h2sub" style="margin-top:22px">최근 12개월 신규등록 추이</div>
+  <h2 style="margin-top:36px;padding-top:18px">최근 12개월 신규등록 추이</h2>
+  <div class="sub" id="lkTrendCaveat" style="display:none;margin:-4px 0 6px"></div>
   <div class="trendspark" id="lkTrendSpark"></div>
 
   <div id="lkPerf" style="display:none">
     <h2 style="margin-top:28px">공유숙박 실적 지표 <span id="lkPerfRegion"></span></h2>
-    <div class="h2sub">출처: 야놀자리서치 국내 숙박업 실적 지표(<span id="lkPerfYm"></span>, 공유숙박 부문 광역
-    권역 평균). NOL(야놀자)·AirDNA·산하정보기술 데이터를 블렌딩해 야놀자리서치가 공개 발행한
-    수치이며, 개별 매물의 예상 수익이 아니라 권역 평균입니다.</div>
+    <div class="h2sub">출처: 야놀자리서치 국내 숙박업 실적 지표(<span id="lkPerfYm"></span> 기준). 자세한 산출 방식과
+    "개별 매물 예상 수익이 아닌 이유"는 아래 안내를 참고하세요.</div>
     <div class="kpis">
       <div class="kpi"><div class="l">평균 객단가</div><div class="v" id="lkAdr">-</div></div>
       <div class="kpi"><div class="l">객실 점유율</div><div class="v" id="lkOcc">-</div></div>
@@ -1512,6 +1670,11 @@ def render_estimate(d: SiteData) -> str:
   </div>
   <div id="lkPerfEmpty" class="sub" style="display:none;margin-top:20px">
     이 권역은 야놀자리서치 실적 지표 커버리지 밖입니다(대구·대전·인천·울산·세종).</div>
+
+  <h2 style="margin-top:36px;padding-top:18px">관광진흥법 개정 동향</h2>
+  <div class="sub" style="margin:-4px 0 6px">법 개정은 전국 공통이라 어느 지역을 고르든 똑같이 적용됩니다 —
+  이 지역만의 규제가 아닙니다. <a href="dashboard.html">대시보드에서 규제·정책 동향 전체 보기 →</a></div>
+  {bills_block}
 
   <div class="ctaBanner">
     <div class="t">이 지역에서 시작해보고 싶다면</div>
@@ -1531,6 +1694,8 @@ def render_estimate(d: SiteData) -> str:
 const LK_DATA = {data_json};
 const YNJ_DATA = {perf_json};
 const NATIONAL_TOTAL = {national_total};
+const EI_TOTAL = {ei_total};
+const EI_AVG = {ei_avg};
 const MAP_SIDOS = new Set({map_sidos_json});
 const sidoEl = document.getElementById('lkSido');
 const guEl = document.getElementById('lkGu');
@@ -1571,9 +1736,16 @@ function showPin(name) {{
   pin.style.display = 'block';
 }}
 
+function selectGu(name) {{ guEl.value = name; guEl.dispatchEvent(new Event('change')); }}
+
 mapWrap.addEventListener('click', e => {{
   const p = e.target.closest('path[data-name]');
-  if (p) {{ guEl.value = p.dataset.name; guEl.dispatchEvent(new Event('change')); }}
+  if (p) selectGu(p.dataset.name);
+}});
+mapWrap.addEventListener('keydown', e => {{
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const p = e.target.closest('path[data-name]');
+  if (p) {{ e.preventDefault(); selectGu(p.dataset.name); }}
 }});
 
 sidoEl.addEventListener('change', () => {{
@@ -1594,14 +1766,19 @@ sidoEl.addEventListener('change', () => {{
 
   const max = group[0] ? group[0].active : 1;
   rankList.innerHTML = group.map(r => `
-    <div class="rankrow" data-gu="${{r.sigungu}}">
+    <div class="rankrow" data-gu="${{r.sigungu}}" tabindex="0" role="button"
+         aria-label="${{r.sigungu}} 선택, 영업중 ${{r.active.toLocaleString()}}곳">
       <div class="rn">${{r.sido_rank}}</div>
       <div class="rname">${{r.sigungu}}</div>
       <div class="rbarwrap"><div class="rbar" style="width:${{Math.max(4, r.active / max * 100)}}%"></div></div>
       <div class="rcount">${{r.active.toLocaleString()}}곳</div>
     </div>`).join('');
   rankList.querySelectorAll('.rankrow').forEach(el => {{
-    el.addEventListener('click', () => {{ guEl.value = el.dataset.gu; guEl.dispatchEvent(new Event('change')); }});
+    el.addEventListener('click', () => selectGu(el.dataset.gu));
+    el.addEventListener('keydown', e => {{
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault(); selectGu(el.dataset.gu);
+    }});
   }});
   rankBox.style.display = 'block';
 
@@ -1651,6 +1828,29 @@ guEl.addEventListener('change', () => {{
   growthEl.classList.toggle('up', r.growth_pct !== null && r.growth_pct >= 0);
   growthEl.classList.toggle('down', r.growth_pct !== null && r.growth_pct < 0);
 
+  const eiBox = document.getElementById('lkEi');
+  const eiEmpty = document.getElementById('lkEiEmpty');
+  if (r.entry) {{
+    document.getElementById('lkEiScore').textContent = r.entry.index;
+    document.getElementById('lkEiRank').textContent =
+      `상위 ${{r.entry.ei_rank}}위 (지수 산정 가능 ${{EI_TOTAL.toLocaleString()}}곳 중)`;
+    document.getElementById('lkEiGaugeMark').style.left = r.entry.index + '%';
+    document.getElementById('lkEiGaugeAvg').style.left = EI_AVG + '%';
+    const diff = r.entry.index - EI_AVG;
+    document.getElementById('lkEiCompare').textContent = diff === 0
+      ? `지수 산정 가능 지역 평균(${{EI_AVG}}점)과 같습니다.`
+      : `지수 산정 가능 지역 평균(${{EI_AVG}}점)보다 ${{Math.abs(diff)}}점 ${{diff > 0 ? '높습니다' : '낮습니다'}}.`;
+    const axes = [['성장', r.entry.pct_growth], ['생존', r.entry.pct_survival], ['적합도', r.entry.pct_fit]];
+    if (r.entry.pct_demand !== undefined) axes.push(['수요', r.entry.pct_demand]);
+    document.getElementById('lkEiAxes').innerHTML = axes.map(([label, v]) => `
+      <div class="eiRow"><span class="eiL">${{label}}</span>
+        <div class="eiBarWrap"><div class="eiBar" style="width:${{v}}%"></div></div>
+        <span class="eiN">${{v}}</span></div>`).join('');
+    eiBox.style.display = 'block'; eiEmpty.style.display = 'none';
+  }} else {{
+    eiBox.style.display = 'none'; eiEmpty.style.display = 'block';
+  }}
+
   const statusTotal = r.active + r.pause + r.closed;
   const statusBar = document.getElementById('lkStatusBar');
   const segs = [['active', '영업중', r.active], ['pause', '휴업', r.pause], ['closed', '폐업', r.closed]];
@@ -1661,11 +1861,36 @@ guEl.addEventListener('change', () => {{
   ).join('');
 
   const maxMonthly = Math.max(1, ...r.monthly.map(m => m.n));
-  document.getElementById('lkTrendSpark').innerHTML = r.monthly.map((m, i) => `
-    <div class="tcol">
-      <div class="tbarwrap" title="${{m.ym}}: ${{m.n}}건"><div class="tbar" style="height:${{m.n / maxMonthly * 100}}%"></div></div>
+  // 위 "최근 6개월 신규"(recent6)가 실제로 합산한 달만 강조한다 — 단순히 "마지막 6칸"이
+  // 아니다. 이번 달처럼 아직 등록 0건인 달은 recent6 계산에서 통째로 빠지고 그만큼 앞으로
+  // 밀리는데, 달력칸(monthly)은 항상 마지막 12개월을 꽉 채워 보여주기 때문이다 — 그대로
+  // "마지막 6칸=최근 6개월"로 칠하면 위 숫자와 안 맞는 걸 실측 중 발견했다(localdata.py의
+  // recent6_yms 주석 참고).
+  const recentYms = new Set(r.recent6_yms || []);
+  const trendCaveat = document.getElementById('lkTrendCaveat');
+  const last6CalendarYms = r.monthly.slice(-6).map(m => m.ym);
+  const isStandardWindow = last6CalendarYms.every(ym => recentYms.has(ym)) && recentYms.size === 6;
+  if (isStandardWindow) {{
+    trendCaveat.style.display = 'none';
+  }} else {{
+    trendCaveat.textContent = '이번 달처럼 아직 등록 이력이 없는 달은 "최근 6개월"(진한 막대) 계산에서 빠지고, ' +
+      '그 앞 달까지가 최근 구간으로 잡힙니다 — 위 "최근 6개월 신규"·"직전 6개월 대비"와 같은 기준입니다.';
+    trendCaveat.style.display = 'block';
+  }}
+  let prevRecent = false;
+  document.getElementById('lkTrendSpark').innerHTML = r.monthly.map((m, i) => {{
+    const isRecent = recentYms.has(m.ym);
+    const boundary = isRecent && !prevRecent && i > 0;
+    prevRecent = isRecent;
+    return `
+    <div class="tcol ${{isRecent ? 'trecent' : ''}} ${{boundary ? 'tboundary' : ''}}">
+      <div class="tval">${{m.n}}</div>
+      <div class="tbarwrap" title="${{m.ym}}: ${{m.n}}건">
+        <div class="tbar ${{isRecent ? 'trecentbar' : ''}}" style="height:${{m.n / maxMonthly * 100}}%"></div>
+      </div>
       <div class="tlabel">${{i % 3 === 0 ? m.ym.slice(2) : ''}}</div>
-    </div>`).join('');
+    </div>`;
+  }}).join('');
 
   const perf = r.ynj_region ? YNJ_DATA[r.ynj_region] : null;
   if (perf) {{
@@ -1683,7 +1908,8 @@ guEl.addEventListener('change', () => {{
 }});
 </script>"""
     return page("지역별 시장 지표", "estimate", 0, body,
-                "지역 선택 시 외도민업 등록 밀도·증감률과 야놀자리서치 평균 객단가·점유율·객실당매출 지표를 보여줍니다.")
+                "지역 선택 시 외도민업 등록 밀도·증감률과 야놀자리서치 평균 객단가·점유율·객실당매출 지표를 보여줍니다.",
+                path="estimate.html")
 
 
 # ─────────────────────────────────────────────────────── 월간 리포트 상세
@@ -1755,7 +1981,8 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
 
 {FOOTER}"""
     return page(f"{iss.ym} 리포트", "reports", 1, body,
-                f"{iss.ym} 공유숙박 시장 리포트. 외도민업 영업중 {iss.flagship.active:,}곳.")
+                f"{iss.ym} 공유숙박 시장 리포트. 외도민업 영업중 {iss.flagship.active:,}곳.",
+                path=f"report/{iss.ym}.html")
 
 
 # ─────────────────────────────────────────────────────── 빌드
@@ -1778,6 +2005,34 @@ def build() -> None:
         (SITE / "report" / f"{iss.ym}.html").write_text(
             render_report_detail(iss, prev, d.inbound, d.perf, d.demand, d.visitors, d.entry_index),
             encoding="utf-8")
+
+    # sitemap.xml·robots.txt — SITE_BASE_URL 없으면(로컬 개발) 가짜 도메인으로 된
+    # sitemap을 만들지 않고 조용히 생략한다(page()의 OG 태그 생략과 같은 이유).
+    if SITE_BASE_URL:
+        paths = ["", "dashboard.html", "reports.html", "news.html", "competitors.html", "estimate.html"]
+        paths += [f"report/{iss.ym}.html" for iss in d.all_issues]
+        urls = "".join(f"<url><loc>{SITE_BASE_URL}/{p}</loc></url>\n" for p in paths)
+        (SITE / "sitemap.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n',
+            encoding="utf-8")
+        (SITE / "robots.txt").write_text(
+            f"User-agent: *\nAllow: /\nSitemap: {SITE_BASE_URL}/sitemap.xml\n", encoding="utf-8")
+    else:
+        print("  ⚠️ SITE_BASE_URL 미설정 — sitemap.xml/robots.txt 생성 생략")
+
+    # 사이트 내 검색(news.html·reports.html의 search_box_html())용 인덱스 — 뉴스는
+    # 원문 URL 그대로(새 탭으로 열림), 리포트는 ym을 제목·날짜 삼아 합성한다(개별
+    # 제목·날짜 필드가 없는 Issue라서).
+    search_index = [
+        {"type": "news", "title": i.title, "url": i.url, "source": i.source, "date": i.date or ""}
+        for i in d.news_items
+    ] + [
+        {"type": "report", "title": f"{iss.ym} 리포트", "url": f"report/{iss.ym}.html",
+         "source": "월간 리포트", "date": iss.ym}
+        for iss in d.all_issues
+    ]
+    (SITE / "search-index.json").write_text(json.dumps(search_index, ensure_ascii=False), encoding="utf-8")
 
     # 구독 즉시발송용 요약. subscribe_server.py 가 매 구독마다 크롤링을 다시
     # 돌리지 않도록, 빌드 시점에 딱 필요한 값만 여기 남겨둔다.

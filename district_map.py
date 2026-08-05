@@ -231,7 +231,8 @@ def _render_svg(shapes: list[tuple[str, list, bool, str]], width: int, height: i
         # (경기도처럼 매칭 안 된 시군구가 있는 지도에서만 재현 — 실측으로 발견).
         # data-cx/cy는 선택 시 찍을 핀 위치 — 라벨은 겹침 방지로 밀릴 수 있어 그 좌표를
         # 그대로 쓰면 핀이 실제 위치에서 벗어난다(진짜 중심 좌표를 따로 들고 있어야 함).
-        attr = f' data-name="{name}" data-cx="{cx:.1f}" data-cy="{cy:.1f}"' if clickable else ' class="nodata"'
+        attr = (f' data-name="{name}" data-cx="{cx:.1f}" data-cy="{cy:.1f}" '
+                f'tabindex="0" role="button" aria-label="{name} 선택"') if clickable else ' class="nodata"'
         path_strs.append(f'<path d="{d}"{attr}/>')
 
         shape_w, shape_h = max(xs) - min(xs), max(ys) - min(ys)

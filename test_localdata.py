@@ -115,6 +115,28 @@ def test_regional_stats_includes_status_and_zero_filled_trend():
     ], "등록 이력 없는 달(4·5월)도 0으로 채워져야 스파크라인 폭이 일정하다"
 
 
+def test_regional_stats_recent6_yms_matches_what_recent6_actually_summed():
+    """
+    recent6(위 '최근 6개월 신규'/증감률의 원천)는 등록 이력이 '있는' 마지막 6개월만 센다 —
+    이번 달처럼 딕셔너리에 키 자체가 없는 달은 통째로 빠지고 창이 앞으로 밀린다. 반면
+    monthly(estimate.html 트렌드 스파크용)는 달력상 마지막 N개월을 항상 0으로 채운다.
+    이 둘이 가리키는 구간이 실측 중 실제로 어긋나는 걸 발견했다(2026-08-04, 이번 달 등록
+    0건) — recent6_yms가 recent6와 같은 달을 가리켜야 프론트에서 그 달들만 강조할 수 있다.
+    """
+    monthly = {f"2025-{m:02d}": 10 for m in range(1, 7)}  # 1~6월만 이력 존재, 7월은 키 자체가 없음
+    s = ld.CategoryStats(
+        "x", "x", active=60, closed=0, pause=0, total=60,
+        by_sigungu={"서울특별시 마포구": 60},
+        by_sigungu_monthly={"서울특별시 마포구": monthly},
+    )
+    regions = {r["sigungu"]: r for r in s.regional_stats(trend_months=12, today=date(2025, 7, 15))}
+    mapo = regions["마포구"]
+    assert mapo["recent6"] == 60
+    assert mapo["recent6_yms"] == [f"2025-{m:02d}" for m in range(1, 7)]
+    assert mapo["monthly"][-1] == {"ym": "2025-07", "n": 0}, "달력 채움은 7월도 (0건으로) 포함해야 한다"
+    assert "2025-07" not in mapo["recent6_yms"], "recent6는 7월을 안 셌으니 강조 대상에서도 빠져야 한다"
+
+
 def test_saturation_signal_flags_growth_slowdown():
     """이미 크고(active 충분) 최근 유입이 준 구가 상단에, 증감률이 마이너스로 잡혀야 한다."""
     monthly = {}

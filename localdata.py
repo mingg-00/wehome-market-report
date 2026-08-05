@@ -92,13 +92,20 @@ class CategoryStats:
             sido, _, sigungu = region.partition(" ")
             monthly = self.by_sigungu_monthly.get(region, {})
             months = sorted(monthly.items())
-            recent = sum(c for _, c in months[-6:])
+            recent_slice = months[-6:]
+            recent = sum(c for _, c in recent_slice)
             prior = sum(c for _, c in months[-12:-6])
             growth = (recent - prior) / prior if prior else (float("inf") if recent else 0.0)
             status = self.by_sigungu_status.get(region, {})
             out.append({
                 "sido": sido, "sigungu": sigungu, "active": active,
                 "recent6": recent, "growth": growth,
+                # recent6가 실제로 합산한 달(등록 이력이 있는 마지막 6개월 — 이번 달처럼 아직
+                # 등록 0건인 달은 빠지고 그만큼 앞으로 밀린다)을 그대로 넘긴다. monthly는
+                # 달력상 마지막 N개월을 0으로 채운 별개 창이라, 단순히 "마지막 6칸"을 recent6로
+                # 표시하면(estimate.html 트렌드 스파크) 실측 중 숫자가 안 맞는 걸 발견했다
+                # (2026-08-04, 8월 등록 0건이라 recent6가 2~7월인데 마지막 6칸은 3~8월).
+                "recent6_yms": [ym for ym, _ in recent_slice],
                 "closed": status.get("closed", 0), "pause": status.get("pause", 0),
                 "monthly": [{"ym": ym, "n": monthly.get(ym, 0)} for ym in recent_yms],
             })

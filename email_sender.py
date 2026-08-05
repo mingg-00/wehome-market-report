@@ -64,6 +64,21 @@ def verify_unsubscribe_token(email: str, token: str) -> bool:
     return hmac.compare_digest(unsubscribe_token(email), token)
 
 
+def confirm_token(email: str) -> str:
+    """
+    더블 옵트인 인증 링크용 — unsubscribe_token과 같은 비밀값을 재사용하되, 서명
+    대상 문자열 앞에 "confirm:" 접두어를 붙인다. 접두어 없이 email만 서명하면
+    confirm_token(email) == unsubscribe_token(email)이 돼서(둘 다 email 하나만
+    HMAC), 인증 링크를 수신거부 링크로 재생(replay)할 수 있게 된다.
+    """
+    return hmac.new(_unsub_secret().encode(), f"confirm:{email.lower()}".encode(),
+                     hashlib.sha256).hexdigest()[:24]
+
+
+def verify_confirm_token(email: str, token: str) -> bool:
+    return hmac.compare_digest(confirm_token(email), token)
+
+
 def is_configured() -> bool:
     return bool(SMTP_USER and SMTP_PASSWORD)
 
@@ -89,6 +104,22 @@ font-weight:700;font-size:14px;padding:12px 24px;border-radius:10px">전체 리�
 <p style="font-size:12px;color:#93a1b5;margin-top:32px;line-height:1.7">
 행정안전부 원본 데이터 직접 수집·집계 · 위홈 마켓리포트<br>
 더 이상 받고 싶지 않으신가요? <a href="{unsubscribe_url}" style="color:#93a1b5">수신거부</a></p>
+</div>"""
+
+
+def render_confirm_email(confirm_url: str) -> str:
+    """더블 옵트인 인증 메일 — render_issue_email과 같은 인라인 스타일 규칙(외부 CSS
+    못 쓰는 이메일 클라이언트 대응)을 따른다. 아직 구독이 활성화된 게 아니라는 걸
+    분명히 하려고 "구독 완료"가 아니라 "한 단계 남았습니다"로 문구를 잡는다."""
+    return f"""<div style="font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;max-width:520px;margin:0 auto;padding:32px 20px;color:#161b22">
+<div style="color:#00A88F;font-weight:800;font-size:11px;letter-spacing:.1em;text-transform:uppercase">SHARED STAY MARKET REPORT</div>
+<h1 style="font-size:22px;margin:10px 0 4px">구독 전 한 단계만 더</h1>
+<p style="color:#5b6472;font-size:14px;margin:0 0 24px">아래 버튼을 눌러 이메일 주소를 인증하면 구독이 시작됩니다.
+본인이 신청하지 않았다면 이 메일을 무시하셔도 됩니다 — 인증 전까지는 어떤 메일도 발송되지 않습니다.</p>
+<a href="{confirm_url}" style="display:inline-block;background:#1B2A4A;color:#fff;text-decoration:none;
+font-weight:700;font-size:14px;padding:12px 24px;border-radius:10px">구독 인증하기 →</a>
+<p style="font-size:12px;color:#93a1b5;margin-top:32px;line-height:1.7">
+위홈 마켓리포트</p>
 </div>"""
 
 
@@ -130,8 +161,18 @@ def unsubscribe_url(email: str) -> str:
     return f"{base}/unsubscribe?email={email}&token={unsubscribe_token(email)}"
 
 
+def confirm_url(email: str) -> str:
+    base = SITE_BASE_URL or "https://SITE-BASE-URL-미설정.example"
+    return f"{base}/confirm?email={email}&token={confirm_token(email)}"
+
+
 if __name__ == "__main__":
     print(f"SMTP 설정됨: {is_configured()}")
+    assert confirm_token("a@example.com") != unsubscribe_token("a@example.com"), \
+        "인증 토큰과 수신거부 토큰이 같으면 링크 재생(replay)이 가능해진다"
+    assert verify_confirm_token("a@example.com", confirm_token("a@example.com"))
+    assert not verify_confirm_token("a@example.com", "wrong-token")
     html = render_issue_email("2026-07", 10894, 0.63, "마포구",
                                report_url("2026-07"), unsubscribe_url("test@example.com"))
     send_email("test@example.com", "[테스트] 2026-07 공유숙박 마켓리포트", html)
+    send_email("test@example.com", "[테스트] 구독 인증", render_confirm_email(confirm_url("test@example.com")))
