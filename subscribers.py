@@ -10,12 +10,17 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "subscribers.db"
+# Railway/Render 등에 영구 볼륨을 붙이면 SUBSCRIBERS_DB_PATH로 그 마운트 경로를
+# 가리키게 한다(예: /data/subscribers.db) — 안 그러면 컨테이너가 재배포될 때마다
+# 로컬 파일이 초기화돼 구독자가 전부 날아간다. 코드 재배포 없이 env var만 바꾸면
+# 되게 하려고 여기서 읽는다(DEPLOY.md 참고).
+DB_PATH = Path(os.getenv("SUBSCRIBERS_DB_PATH", str(Path(__file__).parent / "subscribers.db")))
 
 # 분야별 구독 선택지 — build_site.py의 구독 폼 체크박스가 이 딕셔너리를 그대로
 # 써서 렌더링한다(단일 소스, 폼과 저장 로직이 따로 놀지 않게).
@@ -35,6 +40,7 @@ CREATE TABLE IF NOT EXISTS subscribers (
 
 @contextmanager
 def _conn():
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB_PATH, timeout=10)
     c.row_factory = sqlite3.Row
     try:
