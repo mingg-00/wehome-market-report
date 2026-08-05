@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""구독 API 자체 점검(Flask test_client, 실제 서버 기동 없음). 임시 DB·SMTP dry-run 사용."""
+"""구독 API 자체 점검(Flask test_client, 실제 서버 기동 없음). 임시 DB 사용."""
 
 import json
 import os
@@ -8,6 +8,20 @@ import tempfile
 import email_sender
 import subscribe_server as srv
 import subscribers as sub
+
+
+def _fake_send_email(to_email, subject, html_body):
+    """
+    email_sender.send_email을 통째로 갈아치운다 — 로컬 .env에 진짜 SMTP 자격증명이
+    채워진 뒤 이 테스트 스위트가 가짜 주소(a@example.com)로 실제 메일을 보내려던 걸
+    실측 중 발견했다(실제 발송 로그가 찍힘). 테스트는 SMTP 설정 여부와 무관하게 항상
+    격리돼야 한다 — is_configured()가 True든 False든 이 파일 안에서는 네트워크를
+    안 탄다.
+    """
+    return {"sent": False, "dry_run": True, "error": None}
+
+
+email_sender.send_email = _fake_send_email
 
 
 def _fresh_db():
