@@ -69,6 +69,32 @@ def _latest_issue() -> dict | None:
     return None
 
 
+def _result_page(message: str, ok: bool = True) -> str:
+    """/confirm·/unsubscribe가 지금까지 스타일 없는 순수 문자열만 돌려줘서, 이메일
+    링크를 눌렀을 때 브랜드 없는 흰 화면만 보였다(실행계획 08-05 항목에 남겨둔 갭).
+    사이트 본체(build_site.py)의 CSS 전체를 끌어오는 대신, 팔레트 변수만 그대로
+    복제해 이 서버 혼자서도 완결된 페이지를 낼 수 있게 한다."""
+    home = email_sender.SITE_BASE_URL or "#"
+    icon = "✓" if ok else "✕"
+    color = "var(--mint)" if ok else "#e5484d"
+    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>공유숙박 마켓리포트</title><style>
+:root{{--navy:#1B2A4A;--mint:#00C2A8;--bg:#fff;--fg:#161b22;--muted:#5b6472;--line:#e6e9ee;--card:#f7f9fb}}
+@media(prefers-color-scheme:dark){{:root{{--bg:#0c1017;--fg:#e8edf4;--muted:#93a1b5;--line:#232c3a;--card:#141b26}}}}
+*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--fg);
+font-family:-apple-system,BlinkMacSystemFont,"Pretendard",sans-serif;display:flex;
+min-height:100vh;align-items:center;justify-content:center;padding:24px}}
+.card{{max-width:420px;text-align:center;background:var(--card);border:1px solid var(--line);
+border-radius:16px;padding:40px 32px}}
+.icon{{width:56px;height:56px;border-radius:50%;background:{color};color:#fff;
+font-size:28px;line-height:56px;margin:0 auto 20px}}
+p{{font-size:15px;line-height:1.6;color:var(--fg)}}
+a{{display:inline-block;margin-top:20px;color:var(--mint);text-decoration:none;font-weight:600}}
+</style></head><body><div class="card"><div class="icon">{icon}</div>
+<p>{message}</p><a href="{home}">← 공유숙박 마켓리포트로 돌아가기</a></div></body></html>"""
+
+
 @app.after_request
 def _cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
@@ -111,9 +137,9 @@ def confirm():
     email = (request.args.get("email") or "").strip().lower()
     token = request.args.get("token") or ""
     if not email_sender.verify_confirm_token(email, token):
-        return "유효하지 않은 인증 링크입니다.", 400
+        return _result_page("유효하지 않은 인증 링크입니다.", ok=False), 400
     if not sub.confirm(email):
-        return "이미 인증되었거나 존재하지 않는 이메일입니다."
+        return _result_page("이미 인증되었거나 존재하지 않는 이메일입니다.", ok=False)
 
     issue = _latest_issue()
     if issue:
@@ -121,7 +147,7 @@ def confirm():
             issue["ym"], issue["active"], issue["seoul_share"], issue["top_district"],
             email_sender.report_url(issue["ym"]), email_sender.unsubscribe_url(email))
         email_sender.send_email(email, f"[구독 완료] {issue['ym']} 공유숙박 마켓리포트", html)
-    return "이메일 인증이 완료됐습니다. 매달 발행 즉시 리포트를 보내드립니다."
+    return _result_page("이메일 인증이 완료됐습니다.<br>매달 발행 즉시 리포트를 보내드립니다.")
 
 
 @app.route("/unsubscribe", methods=["GET"])
@@ -129,10 +155,11 @@ def unsubscribe():
     email = (request.args.get("email") or "").strip().lower()
     token = request.args.get("token") or ""
     if not email_sender.verify_unsubscribe_token(email, token):
-        return "유효하지 않은 수신거부 링크입니다.", 400
+        return _result_page("유효하지 않은 수신거부 링크입니다.", ok=False), 400
     ok = sub.unsubscribe(email)
-    return ("수신거부가 완료되었습니다. 그동안 구독해주셔서 감사합니다." if ok
-            else "이미 수신거부되었거나 존재하지 않는 이메일입니다.")
+    return _result_page(
+        "수신거부가 완료되었습니다.<br>그동안 구독해주셔서 감사합니다." if ok
+        else "이미 수신거부되었거나 존재하지 않는 이메일입니다.", ok=ok)
 
 
 def _require_admin_token() -> bool:
