@@ -886,12 +886,9 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .lkResult{margin:8px 0 22px}
 .verdictCard{border-radius:18px;padding:24px 26px 22px;margin:8px 0 22px;
  border:1px solid var(--line);background:var(--card)}
-.verdictCard[data-tone="positive"]{border-color:color-mix(in srgb,var(--mint) 45%,var(--line));
- background:color-mix(in srgb,var(--mint) 9%,var(--card))}
-.verdictCard[data-tone="warning"]{border-color:color-mix(in srgb,#E2574C 40%,var(--line));
- background:color-mix(in srgb,#E2574C 7%,var(--card))}
-.verdictCard[data-tone="caution"]{border-color:color-mix(in srgb,#F0A93E 45%,var(--line));
- background:color-mix(in srgb,#F0A93E 9%,var(--card))}
+.verdictCard[data-tone="positive"]{border-color:color-mix(in srgb,var(--mint) 45%,var(--line))}
+.verdictCard[data-tone="warning"]{border-color:color-mix(in srgb,#E2574C 40%,var(--line))}
+.verdictCard[data-tone="caution"]{border-color:color-mix(in srgb,#F0A93E 45%,var(--line))}
 .vcTop{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px 14px}
 .vcRegion{font-size:23px;font-weight:800;letter-spacing:-.02em}
 .vcRank{font-size:12.5px;font-weight:700;color:var(--muted);white-space:nowrap}
