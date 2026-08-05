@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
-구독 즉시 발송 — wehome-newsletter/send_newsletter.py 의 SMTP 발송 로직을
-참고해 최소 버전으로 재구현했다(그대로 import는 안 함 — 그쪽은 이미지 CID
-임베드·트래킹 픽셀 등 뉴스레터 전용 기능이 얽혀 있고, 우리는 요약 이메일 하나만
-필요해서 가져다 쓰면 필요 없는 것까지 딸려온다. "재사용"의 취지는 SMTP 발송
-방식·자격증명 읽는 패턴을 그대로 따르는 것으로 충분하다고 판단).
+구독 즉시 발송 — Resend HTTPS API로 보낸다.
+
+원래는 smtplib(Gmail SMTP)로 짰는데, 8/6 Railway 배포 후 실제로 발송이 전부
+"[Errno 101] Network is unreachable"로 죽는 걸 발견했다 — Railway가 아웃바운드
+SMTP(25/465/587)를 통째로 막아놔서다(Railway 자체 커뮤니티도 이 경우 HTTPS API
+기반 발송 서비스로 바꾸라고 권장). SMTP는 코드를 아무리 고쳐도 그 호스트에서는
+안 되는 문제라 프로토콜 자체를 HTTPS API로 바꿨다 — Resend는 일반 POST 요청이라
+막힐 이유가 없고, 로컬에서도 Gmail 앱 비밀번호·2단계 인증 없이 그대로 된다.
 
 자격증명이 없으면(.env 미설정) 실제 발송 대신 무엇을 보냈을지 로그만 남긴다.
 kakao_sms_sender.py 의 dry-run 패턴과 같은 이유 — 아직 승인 전 기능을 조용히
@@ -17,19 +20,18 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-import smtplib
 import sys
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "").strip()
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+# 발신 도메인을 아직 인증 안 했으면(wehome.me DNS 레코드 필요) Resend의 공유
+# 테스트 도메인을 쓴다 — 단, 이 도메인은 Resend 가입 계정 본인 메일로만 보낼 수
+# 있다는 제약이 있다. 실제 임의 구독자에게 보내려면 도메인 인증이 필요하다.
+EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev").strip()
 FROM_NAME = os.getenv("SMTP_FROM_NAME", "위홈 공유숙박 마켓리포트")
 SITE_BASE_URL = os.getenv("SITE_BASE_URL", "").rstrip("/")
 UNSUB_SECRET = os.getenv("UNSUB_SECRET", "").strip()
@@ -80,7 +82,7 @@ def verify_confirm_token(email: str, token: str) -> bool:
 
 
 def is_configured() -> bool:
-    return bool(SMTP_USER and SMTP_PASSWORD)
+    return bool(RESEND_API_KEY)
 
 
 def render_issue_email(ym: str, active: int, seoul_share: float, top_district: str,
@@ -130,25 +132,24 @@ def send_email(to_email: str, subject: str, html_body: str) -> dict:
     "구독은 됐지만 메일은 아직 안 나갔다"를 명확히 알려야 한다(조용히 성공한 척 금지).
     """
     if not is_configured():
-        print(f"  📭 [DRY-RUN] SMTP 미설정 — {to_email} 에게 '{subject}' 발송 시뮬레이션만 함")
+        print(f"  📭 [DRY-RUN] RESEND_API_KEY 미설정 — {to_email} 에게 '{subject}' 발송 시뮬레이션만 함")
         return {"sent": False, "dry_run": True, "error": None}
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"{FROM_NAME} <{SMTP_USER}>"
-    msg["To"] = to_email
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
-
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, [to_email], msg.as_string())
+        r = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            json={"from": f"{FROM_NAME} <{EMAIL_FROM}>", "to": [to_email],
+                  "subject": subject, "html": html_body},
+            timeout=15,
+        )
+        r.raise_for_status()
         print(f"  ✅ 발송 완료: {to_email}")
         return {"sent": True, "dry_run": False, "error": None}
     except Exception as e:
-        print(f"  ❌ 발송 실패: {to_email} — {type(e).__name__}: {e}")
-        return {"sent": False, "dry_run": False, "error": str(e)}
+        detail = e.response.text if isinstance(e, requests.HTTPError) else str(e)
+        print(f"  ❌ 발송 실패: {to_email} — {type(e).__name__}: {detail}")
+        return {"sent": False, "dry_run": False, "error": detail}
 
 
 def report_url(ym: str) -> str:
@@ -167,7 +168,7 @@ def confirm_url(email: str) -> str:
 
 
 if __name__ == "__main__":
-    print(f"SMTP 설정됨: {is_configured()}")
+    print(f"메일 발송 설정됨(Resend): {is_configured()}")
     assert confirm_token("a@example.com") != unsubscribe_token("a@example.com"), \
         "인증 토큰과 수신거부 토큰이 같으면 링크 재생(replay)이 가능해진다"
     assert verify_confirm_token("a@example.com", confirm_token("a@example.com"))
