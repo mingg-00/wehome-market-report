@@ -886,16 +886,24 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .lkResult{margin:8px 0 22px}
 .verdictCard{border-radius:18px;padding:24px 26px 22px;margin:8px 0 22px;
  border:1px solid var(--line);background:var(--card)}
-.verdictCard[data-tone="positive"]{border-color:color-mix(in srgb,var(--mint) 45%,var(--line))}
-.verdictCard[data-tone="warning"]{border-color:color-mix(in srgb,#E2574C 40%,var(--line))}
-.verdictCard[data-tone="caution"]{border-color:color-mix(in srgb,#F0A93E 45%,var(--line))}
+/* 판정 톤은 배지 하나에만 싣는다 — 예전엔 카드 테두리(1px×둘레 전체)와 문구 색까지
+   같이 칠했는데, 색을 넓게 얇게 펴면 총면적만 커지고 밀도가 낮아 강조가 아니라 장식용
+   프레임으로 읽힌다(눈에 안 들어오면서 산만하기까지 한 최악의 조합). 좁고 진하게 모으면
+   색 총량은 줄면서 주목도는 올라간다. */
 .vcTop{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px 14px}
 .vcRegion{font-size:23px;font-weight:800;letter-spacing:-.02em}
 .vcRank{font-size:12.5px;font-weight:700;color:var(--muted);white-space:nowrap}
-.vcVerdict{font-size:17px;font-weight:750;line-height:1.5;margin-top:12px;letter-spacing:-.01em}
-.verdictCard[data-tone="positive"] .vcVerdict{color:color-mix(in srgb,var(--mint) 70%,var(--fg))}
-.verdictCard[data-tone="warning"] .vcVerdict{color:#E2574C}
-.verdictCard[data-tone="caution"] .vcVerdict{color:color-mix(in srgb,#F0A93E 55%,var(--fg))}
+.vcVerdict{font-size:16px;font-weight:600;line-height:1.65;margin-top:14px;letter-spacing:-.01em;
+ color:var(--fg)}
+/* neutral(성숙 시장·틈새 시장·신규 진입)은 "판단 신호 없음"이라 제일 조용해야 한다 —
+   기본값을 흰 글씨 채움이 아니라 옅은 회색 칩으로 둔다. 네이비 채움을 쓰다가 다크모드에서
+   어두운 카드에 그대로 묻히는 것도 확인했다(--fg 기준이라 두 테마 다 자동으로 맞는다). */
+.vcBadge{display:inline-block;font-size:12.5px;font-weight:800;letter-spacing:0;
+ padding:4px 10px;border-radius:999px;margin-right:9px;white-space:nowrap;
+ vertical-align:2px;color:var(--muted);background:color-mix(in srgb,var(--fg) 9%,transparent)}
+.verdictCard[data-tone="positive"] .vcBadge{color:#fff;background:color-mix(in srgb,var(--mint) 88%,#000)}
+.verdictCard[data-tone="warning"] .vcBadge{color:#fff;background:#E2574C}
+.verdictCard[data-tone="caution"] .vcBadge{color:#fff;background:color-mix(in srgb,#F0A93E 90%,#000)}
 .vcStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:16px;
  margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
 .vsV{font-size:22px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
@@ -1558,7 +1566,10 @@ def render_estimate(d: SiteData) -> str:
         r["growth_pct"] = None if r["growth"] == float("inf") else round(r["growth"] * 100)
         del r["growth"]
         r["ynj_region"] = yanolja_perf.SIDO_TO_REGION.get(r["sido"])
-        r["verdict"], r["verdict_tone"] = verdict(r["tier"], r["trend"])
+        # 판정 문구는 전부 "라벨 — 설명." 형태다. 라벨만 떼어 배지로 띄운다 — 판정은
+        # 카테고리 정보라 색을 실을 자리가 여기지, 카드 테두리가 아니다.
+        _full, r["verdict_tone"] = verdict(r["tier"], r["trend"])
+        r["verdict_label"], _, r["verdict"] = _full.partition(" — ")
 
     regions.sort(key=lambda r: -r["active"])
     for i, r in enumerate(regions, 1):
@@ -1628,7 +1639,7 @@ def render_estimate(d: SiteData) -> str:
       <div class="vcRegion" id="lkRegionName">-</div>
       <div class="vcRank" id="lkRankBadge">-</div>
     </div>
-    <div class="vcVerdict" id="lkVerdict">-</div>
+    <div class="vcVerdict"><span class="vcBadge" id="lkVerdictBadge">-</span><span id="lkVerdict">-</span></div>
     <div class="vcStats">
       <div><div class="vsV" id="lkActive">-</div><div class="vsL">영업중 호스트</div></div>
       <div><div class="vsV" id="lkTier">-</div><div class="vsL">시장 규모</div></div>
@@ -1824,6 +1835,7 @@ guEl.addEventListener('change', () => {{
   document.getElementById('lkRegionName').textContent = `${{r.sido}} ${{r.sigungu}}`;
   document.getElementById('lkRankBadge').textContent =
     `전국 ${{r.national_rank}}위(${{NATIONAL_TOTAL.toLocaleString()}}곳 중) · ${{r.sido}} 내 ${{r.sido_rank}}위(${{r.sido_total}}곳 중)`;
+  document.getElementById('lkVerdictBadge').textContent = r.verdict_label;
   document.getElementById('lkVerdict').textContent = r.verdict;
   document.getElementById('lkActive').textContent = r.active.toLocaleString() + '곳';
   document.getElementById('lkTier').textContent = r.tier;
