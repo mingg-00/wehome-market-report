@@ -16,11 +16,17 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-# Railway/Render 등에 영구 볼륨을 붙이면 SUBSCRIBERS_DB_PATH로 그 마운트 경로를
-# 가리키게 한다(예: /data/subscribers.db) — 안 그러면 컨테이너가 재배포될 때마다
-# 로컬 파일이 초기화돼 구독자가 전부 날아간다. 코드 재배포 없이 env var만 바꾸면
-# 되게 하려고 여기서 읽는다(DEPLOY.md 참고).
-DB_PATH = Path(os.getenv("SUBSCRIBERS_DB_PATH", str(Path(__file__).parent / "subscribers.db")))
+# 영구 볼륨을 안 붙이면 컨테이너 재배포마다 로컬 파일이 초기화돼 구독자가 전부
+# 날아간다. Railway는 볼륨을 서비스에 붙이면 RAILWAY_VOLUME_MOUNT_PATH를 자동으로
+# 심어준다(사람이 값을 안 넣어도 됨) — 우선 그걸 쓰고, 없으면(Render 등 다른 호스트라
+# 이 env var가 없는 경우) SUBSCRIBERS_DB_PATH를 수동으로 넣게 한다. 둘 다 없으면
+# 로컬 개발 기본 경로.
+_railway_volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+DB_PATH = Path(
+    os.getenv("SUBSCRIBERS_DB_PATH")
+    or (f"{_railway_volume}/subscribers.db" if _railway_volume else None)
+    or str(Path(__file__).parent / "subscribers.db")
+)
 
 # 분야별 구독 선택지 — build_site.py의 구독 폼 체크박스가 이 딕셔너리를 그대로
 # 써서 렌더링한다(단일 소스, 폼과 저장 로직이 따로 놀지 않게).
