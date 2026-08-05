@@ -126,6 +126,23 @@ def active_subscribers() -> list[str]:
             "AND unsubscribed_at IS NULL ORDER BY consented_at")]
 
 
+def pending() -> list[dict]:
+    """관리자 점검용 — 미인증 상태로 남아 있는 이메일과 등록 시각. 실 방문자의
+    가입 시도인지 테스트 흔적인지 지우기 전에 구분할 수 있어야 해서 만든다."""
+    with _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT email, consented_at, source FROM subscribers "
+            "WHERE confirmed_at IS NULL AND unsubscribed_at IS NULL ORDER BY consented_at")]
+
+
+def delete(email: str) -> bool:
+    """행을 완전히 지운다(탈퇴와 다름 — 탈퇴는 unsubscribed_at만 채우고 기록은
+    남긴다). 관리자가 테스트로 만든 미인증 행을 치울 때만 쓴다."""
+    with _conn() as c:
+        cur = c.execute("DELETE FROM subscribers WHERE email=?", (email,))
+        return cur.rowcount > 0
+
+
 def stats() -> dict:
     with _conn() as c:
         total = c.execute("SELECT COUNT(*) FROM subscribers").fetchone()[0]

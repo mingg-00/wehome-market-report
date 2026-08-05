@@ -157,6 +157,27 @@ def test_migration_grandfathers_pre_existing_rows_as_confirmed():
     assert sub.active_subscribers() == ["old@example.com"], "마이그레이션 전 가입자가 그대로 활성 상태여야 한다"
 
 
+def test_pending_lists_unconfirmed_only():
+    _fresh_db()
+    sub.add("a@example.com")
+    sub.add("b@example.com")
+    sub.confirm("b@example.com")
+    emails = [r["email"] for r in sub.pending()]
+    assert emails == ["a@example.com"]
+
+
+def test_delete_removes_row():
+    _fresh_db()
+    sub.add("a@example.com")
+    assert sub.delete("a@example.com") is True
+    assert sub.pending() == []
+
+
+def test_delete_nonexistent_returns_false():
+    _fresh_db()
+    assert sub.delete("nobody@example.com") is False
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

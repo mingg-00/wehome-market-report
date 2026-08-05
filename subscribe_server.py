@@ -135,16 +135,37 @@ def unsubscribe():
             else "이미 수신거부되었거나 존재하지 않는 이메일입니다.")
 
 
+def _require_admin_token() -> bool:
+    token = request.args.get("token", "")
+    return bool(UNSUB_SECRET) and hmac.compare_digest(token, UNSUB_SECRET)
+
+
 @app.route("/subscribers", methods=["GET"])
 def list_subscribers():
     """집계치만 반환(개별 이메일 노출 안 함). 8/6 실배포로 이게 인터넷에 그대로
     열렸다 — 구독자 수는 대외비라 토큰을 건다. 새 env var를 늘리는 대신 이미 모든
     환경에 채워져 있는 UNSUB_SECRET을 재사용한다. 비어 있으면 무조건 거부한다 —
     미설정을 '인증 없음'으로 흘려보내면 배포 환경에서 조용히 무방비가 된다."""
-    token = request.args.get("token", "")
-    if not UNSUB_SECRET or not hmac.compare_digest(token, UNSUB_SECRET):
+    if not _require_admin_token():
         return jsonify(error="unauthorized"), 403
     return jsonify(sub.stats())
+
+
+@app.route("/admin/pending", methods=["GET"])
+def admin_pending():
+    """미인증 상태로 남은 이메일 목록 — 지우기 전에 실제 방문자 가입 시도인지
+    테스트 흔적인지 구분하려고 8/6에 추가. 관리자 전용, 같은 토큰으로 보호."""
+    if not _require_admin_token():
+        return jsonify(error="unauthorized"), 403
+    return jsonify(sub.pending())
+
+
+@app.route("/admin/subscribers/<email>", methods=["DELETE"])
+def admin_delete_subscriber(email):
+    """행을 완전히 지운다 — 관리자가 테스트로 만든 미인증 행 정리용."""
+    if not _require_admin_token():
+        return jsonify(error="unauthorized"), 403
+    return jsonify(deleted=sub.delete(email.strip().lower()))
 
 
 if __name__ == "__main__":
