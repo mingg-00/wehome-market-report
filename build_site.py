@@ -919,10 +919,16 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .eiBarWrap{background:var(--card);border-radius:5px;height:8px;overflow:hidden}
 .eiBar{background:var(--mint);height:100%;border-radius:5px}
 .eiRow .eiN{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+/* 이 축은 발산형(diverging)이다 — 50점이 의미 있는 중간값이고 양 끝이 서로 반대되는
+   상태(포화 vs 기회)라, 평균 대비 단색 램프는 한쪽 끝을 배경색으로 지워버려 그 구간의
+   해상도를 통째로 잃는다(3점과 25점이 똑같이 안 보임). 신호등(빨강/주황/민트)은 그
+   문제는 피했지만 이 축에 없는 위험 판단("포화=나쁨")을 빌려왔었다. 그래서 발산은
+   유지하되 이미 쓰는 두 브랜드색으로: navy(밀집·기성) — 중립 — mint(여백·기회). */
 .eiGauge{position:relative;height:10px;border-radius:5px;margin:16px 2px 8px;
  background:linear-gradient(to right,
-   var(--card) 0%,
-   color-mix(in srgb,var(--mint) 65%,var(--card)) 100%)}
+   color-mix(in srgb,var(--navy) 45%,var(--card)) 0%,
+   var(--card) 50%,
+   color-mix(in srgb,var(--mint) 55%,var(--card)) 100%)}
 .eiGaugeAvg{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);opacity:.35}
 .eiGaugeMark{position:absolute;top:-5px;width:20px;height:20px;margin-left:-10px;
  border-radius:50%;background:var(--fg);border:3px solid var(--bg);box-shadow:0 1px 4px rgba(0,0,0,.3)}
