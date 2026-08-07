@@ -1696,12 +1696,6 @@ def render_estimate(d: SiteData) -> str:
   <div class="sub" style="margin:-4px 0 6px">법 개정은 전국 공통이라 어느 지역을 고르든 똑같이 적용됩니다 —
   이 지역만의 규제가 아닙니다. <a href="dashboard.html">대시보드에서 규제·정책 동향 전체 보기 →</a></div>
   {bills_block}
-
-  <div class="ctaBanner">
-    <div class="t">이 지역에서 시작해보고 싶다면</div>
-    <div class="d">방금 확인한 등록 밀도·증감률을 바탕으로, 위홈에서 호스트로 등록해보세요.</div>
-    <a class="wehomeCta" href="{wehome_cta_url('estimate_result')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
-  </div>
 </div>
 <div id="lkEmpty" class="sub" style="display:none">이 지역은 등록 표본이 없습니다.</div>
 
@@ -1715,6 +1709,16 @@ def render_estimate(d: SiteData) -> str:
   <div class="h2sub">지도나 막대를 눌러도 해당 시군구를 바로 조회할 수 있습니다.</div>
   <div class="mapwrap" id="lkMapWrap" style="display:none"></div>
   <div id="lkRankList" class="ranklist"></div>
+</div>
+
+<!-- CTA는 lkResult 밖에 둔다 — 순위 블록 위에 놓으려고 lkResult 안에 넣으면, 시도만
+     고른 탐색 단계에서 lkResult가 통째로 숨을 때 순위 블록까지 같이 사라진다. 대신
+     표시 여부는 lkResult와 항상 같이 움직인다(지역을 안 골랐는데 "방금 확인한 …를
+     바탕으로"라고 말할 순 없으니). 그래서 결과를 켜고 끄는 세 자리에서 함께 토글한다. -->
+<div class="ctaBanner" id="lkCta" style="display:none">
+  <div class="t">이 지역에서 시작해보고 싶다면</div>
+  <div class="d">방금 확인한 등록 밀도·증감률을 바탕으로, 위홈에서 호스트로 등록해보세요.</div>
+  <a class="wehomeCta" href="{wehome_cta_url('estimate_result')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
 </div>
 
 <div class="note warn">등록 밀도·증감률은 행정안전부 등록 건수 기반이라 실제 숙박요금·점유율을
@@ -1733,6 +1737,7 @@ const MAP_SIDOS = new Set({map_sidos_json});
 const sidoEl = document.getElementById('lkSido');
 const guEl = document.getElementById('lkGu');
 const result = document.getElementById('lkResult');
+const cta = document.getElementById('lkCta');
 const empty = document.getElementById('lkEmpty');
 const perfBox = document.getElementById('lkPerf');
 const perfEmpty = document.getElementById('lkPerfEmpty');
@@ -1790,7 +1795,7 @@ mapWrap.addEventListener('keydown', e => {{
 
 sidoEl.addEventListener('change', () => {{
   guEl.innerHTML = '<option value="">시군구 선택</option>';
-  result.style.display = 'none'; empty.style.display = 'none';
+  result.style.display = 'none'; cta.style.display = 'none'; empty.style.display = 'none';
   rankBox.style.display = 'none'; rankList.innerHTML = '';
   mapWrap.style.display = 'none'; mapWrap.innerHTML = '';
   if (!sidoEl.value) {{ guEl.disabled = true; return; }}
@@ -1853,7 +1858,8 @@ guEl.addEventListener('change', () => {{
     const pin = mapWrap.querySelector('#lkPin');
     if (pin) pin.style.display = 'none';
   }}
-  if (!r) {{ result.style.display = 'none'; empty.style.display = guEl.value ? 'block' : 'none'; return; }}
+  if (!r) {{ result.style.display = 'none'; cta.style.display = 'none';
+             empty.style.display = guEl.value ? 'block' : 'none'; return; }}
   document.getElementById('lkVerdictCard').dataset.tone = r.verdict_tone;
   document.getElementById('lkRegionName').textContent = `${{r.sido}} ${{r.sigungu}}`;
   document.getElementById('lkRankBadge').textContent =
@@ -1945,7 +1951,7 @@ guEl.addEventListener('change', () => {{
     perfBox.style.display = 'none'; perfEmpty.style.display = 'block';
   }}
 
-  result.style.display = 'block'; empty.style.display = 'none';
+  result.style.display = 'block'; cta.style.display = 'block'; empty.style.display = 'none';
 }});
 </script>"""
     return page("지역별 시장 지표", "estimate", 0, body,
