@@ -1160,7 +1160,7 @@ def render_landing(d: SiteData) -> str:
   <div class="kpis">
     <div class="kpi"><div class="l">외도민업 영업중</div><div class="v">{c.flagship.active:,}</div></div>
     <div class="kpi"><div class="l">서울 비중</div><div class="v">{c.seoul_share:.0%}</div></div>
-    <div class="kpi"><div class="l">상위 3개구</div><div class="v" style="font-size:16px;margin-top:8px">{top3_txt}</div></div>
+    <div class="kpi"><div class="l">상위 3개구</div><div class="v" style="font-size:16px;margin-top:8px;white-space:normal;line-height:1.4">{top3_txt}</div></div>
   </div>
   <a class="cta" href="dashboard.html">전체 대시보드 보기 →</a>
 </div>
