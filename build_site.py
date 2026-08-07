@@ -1018,10 +1018,10 @@ def nav(active: str, depth: int = 0) -> str:
     p = "../" * depth
     items = [("landing", "홈", f"{p}index.html"),
              ("dashboard", "대시보드", f"{p}dashboard.html"),
-             ("reports", "월간 리포트", f"{p}reports.html"),
+             ("estimate", "지역별 시장 지표", f"{p}estimate.html"),
              ("news", "뉴스", f"{p}news.html"),
              ("competitors", "글로벌 OTA 뉴스룸", f"{p}competitors.html"),
-             ("estimate", "지역별 시장 지표", f"{p}estimate.html")]
+             ("reports", "월간 리포트", f"{p}reports.html")]
     links = "".join(
         f'<a href="{url}" class="{"active" if key == active else ""}">{label}</a>'
         for key, label, url in items
