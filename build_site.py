@@ -765,7 +765,10 @@ h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:26px 0}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .kpi .l{font-size:12px;color:var(--muted)}
-.kpi .v{font-size:27px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums}
+/* nowrap이 없으면 좁은 화면에서 "142,813원"이 숫자와 "원"으로 쪼개져 두 줄이 된다
+   (374px 실측). 대신 카드 폭이 모자라면 글자 크기를 줄여서 한 줄을 지킨다. */
+.kpi .v{font-size:clamp(20px,5.4vw,27px);font-weight:800;letter-spacing:-.02em;margin-top:4px;
+ font-variant-numeric:tabular-nums;white-space:nowrap}
 .kpi .d{font-size:12px;font-weight:700;margin-top:2px}
 .kpi .d.up{color:var(--mint)} .kpi .d.down{color:#E2574C}
 .chart{width:100%;height:auto;display:block;margin:6px 0;overflow:visible}
@@ -883,7 +886,9 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .lookup select{padding:11px 14px;border-radius:10px;border:1px solid var(--line);
  background:var(--bg);color:var(--fg);font-size:14px;min-width:160px}
 .lookup select:disabled{opacity:.5}
-.lkResult{margin:8px 0 22px}
+/* scroll-margin은 selectGu()의 scrollIntoView가 sticky 네비 밑으로 결과를 밀어넣지
+   않게 하려는 것 — 없으면 판정 카드 윗부분이 네비에 가린다. */
+.lkResult{margin:8px 0 22px;scroll-margin-top:78px}
 .verdictCard{border-radius:18px;padding:24px 26px 22px;margin:8px 0 22px;
  border:1px solid var(--line);background:var(--card)}
 /* 판정 톤은 배지 하나에만 싣는다 — 예전엔 카드 테두리(1px×둘레 전체)와 문구 색까지
@@ -1632,13 +1637,6 @@ def render_estimate(d: SiteData) -> str:
   <select id="lkGu" disabled><option value="">시군구 선택</option></select>
 </div>
 
-<div id="lkRankBox" style="display:none">
-  <h2>시도 내 시군구 순위</h2>
-  <div class="h2sub">지도나 막대를 눌러도 해당 시군구를 바로 조회할 수 있습니다.</div>
-  <div class="mapwrap" id="lkMapWrap" style="display:none"></div>
-  <div id="lkRankList" class="ranklist"></div>
-</div>
-
 <div id="lkResult" class="lkResult" style="display:none">
   <div class="verdictCard" id="lkVerdictCard">
     <div class="vcTop">
@@ -1707,6 +1705,18 @@ def render_estimate(d: SiteData) -> str:
 </div>
 <div id="lkEmpty" class="sub" style="display:none">이 지역은 등록 표본이 없습니다.</div>
 
+<!-- 지도·순위는 "어디를 볼지 고르는" 탐색 도구지 답이 아니다 — 시도만 고른 상태에선
+     선택창 바로 아래에 와서 주 콘텐츠가 되고, 시군구까지 골랐으면 답(lkResult) 아래로
+     내려가 "다른 지역 둘러보기" 역할이 된다. 예전엔 이게 항상 위에 있어서, 고른 지역의
+     판정이 나오기까지 지도(480px)와 남의 구 24개 순위(934px)를 지나 1,600px을 스크롤해야
+     했다 — 방금 던진 질문의 답이 화면 두 개 아래 있었다는 뜻. -->
+<div id="lkRankBox" style="display:none">
+  <h2>시도 내 시군구 순위</h2>
+  <div class="h2sub">지도나 막대를 눌러도 해당 시군구를 바로 조회할 수 있습니다.</div>
+  <div class="mapwrap" id="lkMapWrap" style="display:none"></div>
+  <div id="lkRankList" class="ranklist"></div>
+</div>
+
 <div class="note warn">등록 밀도·증감률은 행정안전부 등록 건수 기반이라 실제 숙박요금·점유율을
 반영한 예상 수익이 아닙니다. 평균 객단가·객실 점유율·객실당매출은 실제 실적 지표이지만 개별 매물이 아닌 권역
 평균값입니다 — 이 사이트는 AirDNA 원본 데이터를 그들의 이용약관(크롤링·경쟁 서비스 제작 금지)상
@@ -1759,7 +1769,14 @@ function showPin(name) {{
   pin.style.display = 'block';
 }}
 
-function selectGu(name) {{ guEl.value = name; guEl.dispatchEvent(new Event('change')); }}
+function selectGu(name) {{
+  guEl.value = name; guEl.dispatchEvent(new Event('change'));
+  // 지도·순위를 결과 아래로 내렸으니, 거기서 고르면 결과는 화면 위쪽 바깥에 그려진다 —
+  // 스크롤을 안 옮기면 눌러도 아무 일도 안 일어난 것처럼 보인다. 드롭다운으로 고를 땐
+  // 결과가 바로 밑에 나오고 그 경로는 selectGu를 안 거치므로 여기서만 처리하면 된다.
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  result.scrollIntoView({{behavior: reduce ? 'auto' : 'smooth', block: 'start'}});
+}}
 
 mapWrap.addEventListener('click', e => {{
   const p = e.target.closest('path[data-name]');
