@@ -120,6 +120,56 @@ def test_subscribe_already_active_skips_mail():
     assert "mail" not in body, "이미 활성 구독자한텐 메일을 다시 안 보낸다"
 
 
+def test_admin_send_weekly_digest_requires_token():
+    _fresh_db()
+    assert _client().post("/admin/send-weekly-digest").status_code == 403
+    assert _client().post("/admin/send-weekly-digest?token=wrong").status_code == 403
+
+
+def test_admin_send_weekly_digest_only_targets_market_category(tmp_path=None):
+    """로그인 없이 기존 구독 체크박스로 처리하기로 한 결정의 핵심 — "market"(시장
+    통계·리포트) 카테고리를 고른 사람만 주간 다이제스트를 받아야 한다."""
+    _fresh_db()
+    original_secret = srv.UNSUB_SECRET
+    original_latest = srv.LATEST_ISSUE
+    srv.UNSUB_SECRET = "test-secret"
+    fixture = Path(tempfile.mkstemp(suffix=".json")[1])
+    fixture.write_text(json.dumps({"ym": "2026-08", "active": 100, "seoul_share": 0.5,
+                                    "top_district": "마포구"}), encoding="utf-8")
+    srv.LATEST_ISSUE = fixture
+    try:
+        c = _client()
+        for email, cats in [("a@example.com", ["market"]), ("b@example.com", ["news"])]:
+            c.post("/subscribe", json={"email": email, "consent": True, "categories": cats})
+            token = email_sender.confirm_token(email)
+            c.get(f"/confirm?email={email}&token={token}")
+
+        r = c.post("/admin/send-weekly-digest?token=test-secret")
+        body = r.get_json()
+        assert r.status_code == 200
+        assert body["attempted"] == 1, "market이 아닌 news만 고른 b@example.com은 빠져야 한다"
+        assert body["issue_ym"] == "2026-08"
+    finally:
+        srv.UNSUB_SECRET = original_secret
+        srv.LATEST_ISSUE = original_latest
+        fixture.unlink()
+
+
+def test_admin_send_weekly_digest_no_issue_yet_returns_zero():
+    _fresh_db()
+    original_secret = srv.UNSUB_SECRET
+    original_latest = srv.LATEST_ISSUE
+    srv.UNSUB_SECRET = "test-secret"
+    srv.LATEST_ISSUE = Path("/nonexistent/latest_issue.json")
+    try:
+        r = _client().post("/admin/send-weekly-digest?token=test-secret")
+        body = r.get_json()
+        assert body == {"sent": 0, "attempted": 0, "error": "아직 발행된 리포트가 없습니다."}
+    finally:
+        srv.UNSUB_SECRET = original_secret
+        srv.LATEST_ISSUE = original_latest
+
+
 def test_latest_issue_fetches_from_deployed_site():
     """서버(Railway)엔 site/가 없다 — 배포된 사이트에서 가져와야 한다. 로컬 파일만
     보던 탓에 프로덕션에서 인증 완료 메일이 안 나가던 게 이 테스트의 존재 이유."""

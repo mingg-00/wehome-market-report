@@ -29,8 +29,10 @@ DB_PATH = Path(
 )
 
 # 분야별 구독 선택지 — build_site.py의 구독 폼 체크박스가 이 딕셔너리를 그대로
-# 써서 렌더링한다(단일 소스, 폼과 저장 로직이 따로 놀지 않게).
-CATEGORIES = {"policy": "정책·규제 동향", "market": "시장 통계·리포트", "news": "업계 뉴스"}
+# 써서 렌더링한다(단일 소스, 폼과 저장 로직이 따로 놀지 않게). "market"은 8/7부터
+# 실제로 매주 발송되는 유일한 카테고리라(weekly_digest.py) 라벨에 주기를 명시한다 —
+# 그 전까진 이 카테고리가 저장만 되고 어떤 메일 발송에도 안 쓰였다(3종 다 마찬가지).
+CATEGORIES = {"policy": "정책·규제 동향", "market": "시장 통계·리포트(매주 발송)", "news": "업계 뉴스"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS subscribers (
@@ -118,12 +120,20 @@ def unsubscribe(email: str) -> bool:
         return cur.rowcount > 0
 
 
-def active_subscribers() -> list[str]:
-    """실제 메일을 받는 사람 — 인증 완료 + 탈퇴 안 함."""
+def active_subscribers(category: str | None = None) -> list[str]:
+    """실제 메일을 받는 사람 — 인증 완료 + 탈퇴 안 함.
+
+    category를 주면 그 분야를 받는 사람만 거른다. categories가 NULL인 행(가입 시
+    분야를 안 좁힌 사람, 또는 분야 선택 도입 전 가입자)은 "전체 수신"으로 취급해
+    어떤 category를 넣어도 포함된다 — add()의 독스트링에 적어둔 규칙과 같다."""
     with _conn() as c:
-        return [r["email"] for r in c.execute(
-            "SELECT email FROM subscribers WHERE confirmed_at IS NOT NULL "
-            "AND unsubscribed_at IS NULL ORDER BY consented_at")]
+        rows = c.execute(
+            "SELECT email, categories FROM subscribers WHERE confirmed_at IS NOT NULL "
+            "AND unsubscribed_at IS NULL ORDER BY consented_at")
+        if category is None:
+            return [r["email"] for r in rows]
+        return [r["email"] for r in rows
+                if r["categories"] is None or category in r["categories"].split(",")]
 
 
 def pending() -> list[dict]:

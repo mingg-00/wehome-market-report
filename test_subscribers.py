@@ -139,6 +139,29 @@ def test_add_without_categories_stores_null_meaning_all():
     assert row[0] is None
 
 
+def test_active_subscribers_filters_by_category():
+    _fresh_db()
+    sub.add("a@example.com", categories=["market"]); sub.confirm("a@example.com")
+    sub.add("b@example.com", categories=["news"]); sub.confirm("b@example.com")
+    assert sub.active_subscribers(category="market") == ["a@example.com"]
+
+
+def test_active_subscribers_category_filter_includes_null_as_all():
+    """가입 시 분야를 안 좁힌 사람(NULL)은 어떤 category를 넣어도 포함돼야 한다 —
+    "전체 수신"이 기본값이라는 add()의 규칙과 짝을 맞춘다."""
+    _fresh_db()
+    sub.add("a@example.com"); sub.confirm("a@example.com")  # categories=None
+    sub.add("b@example.com", categories=["news"]); sub.confirm("b@example.com")
+    assert sub.active_subscribers(category="market") == ["a@example.com"]
+
+
+def test_active_subscribers_without_category_returns_everyone():
+    _fresh_db()
+    sub.add("a@example.com", categories=["market"]); sub.confirm("a@example.com")
+    sub.add("b@example.com", categories=["news"]); sub.confirm("b@example.com")
+    assert sorted(sub.active_subscribers()) == ["a@example.com", "b@example.com"]
+
+
 def test_migration_grandfathers_pre_existing_rows_as_confirmed():
     """더블 옵트인 도입 전 스키마(confirmed_at 컬럼 없음)로 이미 존재하던 행은, 마이그레이션
     시 전부 인증된 걸로 백필돼야 한다 — 안 그러면 이미 구독 중이던 사람들이 갑자기

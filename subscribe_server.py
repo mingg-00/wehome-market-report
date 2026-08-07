@@ -195,6 +195,36 @@ def admin_delete_subscriber(email):
     return jsonify(deleted=sub.delete(email.strip().lower()))
 
 
+@app.route("/admin/send-weekly-digest", methods=["POST"])
+def admin_send_weekly_digest():
+    """"market"(시장 통계·리포트) 구독자에게 최신호 요약을 보낸다 — weekly_digest.sh가
+    launchd로 매주 이 엔드포인트를 호출한다(publish.sh의 월간 빌드·배포와 같은 패턴,
+    자세한 건 DEPLOY.md). 로그인 시스템을 새로 만드는 대신 기존 이중 확인 구독을
+    그대로 쓰기로 한 결정 — subscribers.db가 이 서버(Railway)에만 있어서, 발송도
+    여기서 일어나야 한다(로컬 launchd는 트리거만 하고 실제 발송은 못 한다).
+
+    등록 데이터가 매주 안 바뀌어도(원본이 월 단위 갱신) 최신 스냅샷을 다시 보내는 건
+    의도한 동작이다 — "주간 다이제스트"가 매번 새 숫자를 담보하진 않는다, 그건
+    뉴스레터에 흔한 패턴이다."""
+    if not _require_admin_token():
+        return jsonify(error="unauthorized"), 403
+
+    issue = _latest_issue()
+    if not issue:
+        return jsonify(sent=0, attempted=0, error="아직 발행된 리포트가 없습니다."), 200
+
+    emails = sub.active_subscribers(category="market")
+    sent = 0
+    for email in emails:
+        html = email_sender.render_issue_email(
+            issue["ym"], issue["active"], issue["seoul_share"], issue["top_district"],
+            email_sender.report_url(issue["ym"]), email_sender.unsubscribe_url(email))
+        result = email_sender.send_email(email, f"[주간 통계 요약] {issue['ym']} 공유숙박 마켓리포트", html)
+        if result["sent"]:
+            sent += 1
+    return jsonify(sent=sent, attempted=len(emails), issue_ym=issue["ym"])
+
+
 if __name__ == "__main__":
     print(f"DB: {sub.DB_PATH}")
     print(f"SMTP 설정됨: {email_sender.is_configured()}")

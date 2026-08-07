@@ -1180,7 +1180,7 @@ def render_landing(d: SiteData) -> str:
 
 <div class="subscribe">
   <div class="kicker">SUBSCRIBE</div>
-  <h2 style="margin-top:8px;padding-top:0;border-top:none">매달 이메일로 받아보기</h2>
+  <h2 style="margin-top:8px;padding-top:0;border-top:none">이메일로 받아보기</h2>
   <div class="h2sub" style="margin-bottom:0">발행 즉시 이메일로 보내드립니다. 언제든 수신거부할 수 있습니다.</div>
   <form id="subForm">
     <input type="email" id="subEmail" placeholder="you@example.com" required>
