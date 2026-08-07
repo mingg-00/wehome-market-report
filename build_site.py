@@ -1622,15 +1622,20 @@ def render_estimate(d: SiteData) -> str:
     data_json = json.dumps(regions, ensure_ascii=False)
     perf_json = json.dumps(d.perf, ensure_ascii=False)
     perf_ym = next(iter(d.perf.values()))["ym"] if d.perf else None
-    perf_note = (f" · 야놀자리서치 실적 지표(공유숙박 부문, {perf_ym[:4]}-{perf_ym[4:]} 기준, "
-                 f"광역 {len(d.perf)}개 권역)도 함께 표시됩니다." if perf_ym else "")
+    # 원래는 " · …도 함께 표시됩니다."를 첫 문장 중간에 이어 붙였다 — 값 설명 문장 하나에
+    # 용어 3개(등록 밀도·증감률·외도민업)가 한꺼번에 몰려 첫 화면부터 읽기 무거웠다.
+    # 독립 문장으로 떼어 순서를 "뭘 보여주는지 → 무슨 기준인지"로 정리한다. "원화
+    # 예상수익이 아닙니다" 한 줄도 뺐다 — 아직 지역도 안 골랐는데 결과부터 부인하는
+    # 순서였고, 같은 내용을 실제 수치가 보이는 자리(아래 note.warn)에서 더 자세히 설명한다.
+    perf_note = (f" 선택한 권역이 야놀자리서치 실적 지표 대상이면 평균 객단가·점유율·객실당매출도 "
+                 f"함께 보여드립니다({perf_ym[:4]}-{perf_ym[4:]} 기준, 광역 {len(d.perf)}개 권역)." if perf_ym else "")
     bills_block = bills_html(d.reg_bills)
 
     body = f"""
 <div class="kicker">HOST MARKET LOOKUP</div>
 <h1>지역별 시장 지표</h1>
-<div class="sub">시도·시군구를 선택하면 외국인관광 도시민박업(외도민업) 등록 밀도·증감률을
-보여줍니다{perf_note} 등록 밀도는 원화 예상수익이 아닙니다.</div>
+<div class="sub">시도·시군구를 선택하면 그 지역에 등록된 호스트 수, 최근 증감 추이, 진입 적합도를
+보여드립니다. 외국인관광 도시민박업(외도민업) 등록 기준입니다.{perf_note}</div>
 
 <div class="lookup">
   <select id="lkSido"><option value="">시도 선택</option>{sido_options}</select>
