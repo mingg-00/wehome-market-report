@@ -986,7 +986,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  mask-image:linear-gradient(to right,transparent,#000 42%)}
 @media(max-width:760px){.hero{grid-template-columns:1fr}.heroArt{display:none}}
 .pitch{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:28px 0}
-.pitch div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.pitch>div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .pitch .t{font-weight:750;font-size:14.5px}
 .pitch .d{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.6}
 .pitch .ic{font-size:22px;line-height:1;margin-bottom:8px}
