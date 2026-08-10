@@ -1525,7 +1525,7 @@ def render_dashboard(d: SiteData) -> str:
     c, p = d.current, d.previous
     delta = mom_delta(c, p)
     delta_html = "" if delta is None else (
-        f'<div class="d {"up" if delta >= 0 else "down"}">{delta:+,} vs {p.ym}</div>')
+        f'<div class="d {"up" if delta >= 0 else "down"}">전월({p.ym}) 대비 {delta:+,}</div>')
 
     top3 = c.flagship.district_rank(SEOUL, 3)
     top3_txt = "·".join(f"{gu} {cnt:,}" for gu, cnt in top3)
@@ -2879,7 +2879,7 @@ def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
 def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: dict[str, dict],
                           demand: dict[str, dict], visitors: dict, entry_idx: list[dict], csv_path: str) -> str:
     delta = mom_delta(iss, prev)
-    delta_txt = "" if delta is None else f" ({delta:+,} vs {prev.ym})"
+    delta_txt = "" if delta is None else f" (전월({prev.ym}) 대비 {delta:+,})"
 
     cat_rows = "".join(
         f"<tr><td>{iss.categories[k].name_ko}</td><td class=n>{iss.categories[k].active:,}</td>"
@@ -3052,8 +3052,8 @@ def build() -> None:
           f"area/*.html ({len(district_pages)}개 시군구, 등록 {DISTRICT_PAGE_MIN_ACTIVE}곳 이상)")
     delta = mom_delta(d.current, d.previous)
     print(f"   최신: {d.current.ym} 영업중 {d.current.flagship.active:,} "
-          f"({(format(delta, '+,') if delta is not None else '비교 대상 없음(첫 스냅샷)')} "
-          f"vs {d.previous.ym if d.previous else '-'})")
+          f"(전월{'(' + d.previous.ym + ')' if d.previous else ''} 대비 "
+          f"{format(delta, '+,') if delta is not None else '비교 대상 없음(첫 스냅샷)'})")
 
 
 if __name__ == "__main__":
