@@ -989,7 +989,9 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 .pitch>div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .pitch .t{font-weight:750;font-size:14.5px}
 .pitch .d{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.6}
-.pitch .ic{font-size:22px;line-height:1;margin-bottom:8px}
+.pitch .ic{display:flex;align-items:center;justify-content:center;width:42px;height:42px;
+ font-size:20px;line-height:1;margin-bottom:12px;background:var(--bg);
+ border:1px solid var(--line);border-radius:10px}
 .stepList{display:flex;flex-direction:column;gap:0;margin:22px 0}
 .step{display:flex;gap:16px;padding:16px 0}
 .step:not(:last-child){border-bottom:1px dashed var(--line)}
