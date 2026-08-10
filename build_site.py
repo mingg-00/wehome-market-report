@@ -273,7 +273,7 @@ def chart_registrations_trend(monthly: list[tuple[str, int]]) -> str:
     bars = "".join(
         f'<rect class="cbar" x="{ml + i * slot + (slot - bw) / 2:.1f}" y="{base_y - (c / vmax) * ph:.1f}" '
         f'width="{bw:.1f}" height="{(c / vmax) * ph:.1f}" rx="2" fill="{"var(--mint)" if i == n - 1 else "var(--navy)"}" '
-        f'style="transition-delay:{i * 22}ms"><title>{m} {c:,}건</title></rect>'
+        f'style="transition-delay:{i * 22}ms" data-tip="{m} {c:,}건"/>'
         for i, (m, c) in enumerate(zip(months, counts))
     )
     labels = "".join(
@@ -791,6 +791,13 @@ h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--
 .kpi .d{font-size:12px;font-weight:700;margin-top:2px}
 .kpi .d.up{color:var(--mint)} .kpi .d.down{color:#E2574C}
 .chart{width:100%;height:auto;display:block;margin:6px 0;overflow:visible}
+.chart .cbar{cursor:default}
+.chart .cbar:hover{fill:var(--mint)!important}
+.svgTip{position:fixed;z-index:50;pointer-events:none;background:var(--navy);color:#fff;
+ font-size:12px;font-weight:700;padding:5px 9px;border-radius:6px;white-space:nowrap;
+ opacity:0;transform:translate(-50%,-100%);transition:opacity .1s;
+ font-variant-numeric:tabular-nums}
+.svgTip.show{opacity:1}
 .reveal .cbar{transform-box:fill-box;transform-origin:bottom;transform:scaleY(0)}
 .reveal.in .cbar{transform:scaleY(1);transition:transform .8s cubic-bezier(.16,1,.3,1)}
 .reveal .cbarh{transform-box:fill-box;transform-origin:left;transform:scaleX(0)}
@@ -1664,6 +1671,16 @@ def render_dashboard(d: SiteData) -> str:
   // 어떤 이유로든 끝내 안 터지면 콘텐츠가 opacity:0인 채 영원히 안 보이게 된다 — 애니메이션이
   // 실패하는 것보다 콘텐츠가 아예 안 보이는 게 훨씬 나쁘다. 일정 시간 후 강제로 다 보여준다.
   setTimeout(() => {{ els.forEach(e => e.classList.add('in')); }}, 3000);
+}})();
+(function() {{
+  const tip = document.createElement('div');
+  tip.className = 'svgTip';
+  document.body.appendChild(tip);
+  document.querySelectorAll('[data-tip]').forEach(el => {{
+    el.addEventListener('mouseenter', () => {{ tip.textContent = el.dataset.tip; tip.classList.add('show'); }});
+    el.addEventListener('mousemove', (e) => {{ tip.style.left = e.clientX + 'px'; tip.style.top = (e.clientY - 10) + 'px'; }});
+    el.addEventListener('mouseleave', () => tip.classList.remove('show'));
+  }});
 }})();
 </script>"""
     return page("대시보드", "dashboard", 0, body,
