@@ -764,6 +764,7 @@ nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,
 .wrap{max-width:var(--maxw);margin:0 auto;padding:36px 20px 80px}
 .kicker{color:var(--mint);font-weight:800;letter-spacing:.14em;font-size:11.5px;text-transform:uppercase}
 h1{font-size:32px;line-height:1.22;margin:.35em 0 .15em;letter-spacing:-.02em}
+.pageHead{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--line)}
 .h2sub{color:var(--muted);font-size:13.5px;margin-bottom:16px}
 .sub{color:var(--muted);font-size:14px}
@@ -1033,7 +1034,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
     전부 빈 칸으로 나온다(이 페이지에선 그게 데이터 자체다) */
  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
  /* 조회 UI·홍보·다운로드 버튼은 종이에서 누를 수 없다 */
- nav,.dlBar,.searchBox,.subscribe,.ctaBanner,.lookup,#lkRankBox{display:none}
+ nav,.dlBar,.searchBox,.subscribe,.ctaBanner,.lookup,#lkRankBox,.pageHead .dlBtn{display:none}
  /* 대시보드·리포트의 .reveal 요소는 스크롤로 화면에 들어와야 opacity:1이 된다(IntersectionObserver) —
     끝까지 안 스크롤한 채 인쇄하면 못 본 차트가 전부 빈 칸으로 찍힌다 */
  .reveal{opacity:1!important;transform:none!important}
@@ -1483,7 +1484,10 @@ def render_dashboard(d: SiteData) -> str:
 
     body = f"""
 <div class="kicker">MARKET DASHBOARD</div>
-<h1>공유숙박 마켓 대시보드</h1>
+<div class="pageHead">
+  <h1>공유숙박 마켓 대시보드</h1>
+  <button class="dlBtn" type="button" onclick="window.print()">PDF로 저장</button>
+</div>
 <div class="sub">{c.ym} 기준 · {date.today():%Y-%m-%d} 갱신 · 행안부 원본 데이터 직접 수집</div>
 
 <div class="kpis">
@@ -1495,7 +1499,6 @@ def render_dashboard(d: SiteData) -> str:
   <div class="kpi reveal"><div class="l">상위 3개구 집중도</div><div class="v" data-count>{c.concentration(3):.0%}</div>
     <div class="d">{top3_txt}</div></div>
 </div>
-{download_bar(0)}
 
 <h2>등록 추이</h2>
 <div class="h2sub">최근 24개월 월별 신규등록(인허가일자 기준, 현재 상태 무관). 최신월 강조.</div>
