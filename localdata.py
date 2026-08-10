@@ -27,7 +27,7 @@ import csv
 import io
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 import requests
 
@@ -126,6 +126,53 @@ class CategoryStats:
     @property
     def closure_rate(self) -> float:
         return self.closed / self.total if self.total else 0.0
+
+    def sido_growth(self, recent_n: int = 6, today: date | None = None, min_active: int = 0) -> list[dict]:
+        """
+        시도 단위 최근/직전 N개월 신규등록 합산과 증감률 — saturation_signal의 광역
+        버전. 시군구 단위(district_rank·regional_stats)로 "수도권 대 지방" 같은 큰
+        그림을 보면 개별 시군구의 작은 표본 노이즈가 그대로 섞인다 — 시도로 합산해
+        표본을 키우면 신호가 뚜렷해진다(2026-08 "이달의 발견": 서울·부산만 성장,
+        나머지 시도는 감소 — marketing/monthly_pitch.py).
+
+        saturation_signal·regional_stats는 "등록 이력이 있는 마지막 N개 달"을 센다 —
+        신규등록이 0건인 달은 애초에 dict 키가 없어서 그 달은 조용히 건너뛰고 그 앞
+        달까지 당겨쓴다. 표본이 큰 시군구·전국 합계에선 그래도 오차가 작지만, 이
+        함수는 시도별로 쪼개 비교하는 게 목적이라 시도마다 실제로 몇 달치를 비교하는지
+        달라지면(등록 뜸한 지방 시도일수록 창이 몰래 늘어난다) "서울·부산만 성장"
+        같은 결론 자체가 왜곡될 수 있다 — 그래서 달력상 정확히 recent_n개월씩,
+        등록 0건인 달도 0으로 채워 비교한다(_last_n_months). 진행 중인 이번 달도
+        두 창 모두에서 뺀다 — 미완결 건수가 최근 구간에 섞이면 "최근이 더 적어
+        보이는" 쪽으로 편향된다.
+
+        min_active 미만(영업중 표본이 너무 작아 비율이 요동치는 시도, 예: 세종 1곳)은
+        결과에서 뺀다 — saturation_signal의 min_active와 같은 이유·같은 기본 패턴이다.
+
+        반환: [{"sido", "active", "recent", "prior", "growth"}, ...] 최근 건수 내림차순.
+        growth는 prior가 0이면 recent 유무로 inf/0.0 처리(다른 growth 계산과 동일 관례).
+        """
+        today = today or date.today()
+        last_complete_month = today.replace(day=1) - timedelta(days=1)
+        window = _last_n_months(2 * recent_n, end=last_complete_month)
+        prior_yms, recent_yms = window[:recent_n], window[recent_n:]
+
+        active_by_sido = dict(self.sido_rank())
+        prior_totals: Counter[str] = Counter()
+        recent_totals: Counter[str] = Counter()
+        for region, monthly in self.by_sigungu_monthly.items():
+            sido = region.split(" ", 1)[0]
+            prior_totals[sido] += sum(monthly.get(ym, 0) for ym in prior_yms)
+            recent_totals[sido] += sum(monthly.get(ym, 0) for ym in recent_yms)
+
+        out = []
+        for sido in set(prior_totals) | set(recent_totals):
+            active = active_by_sido.get(sido, 0)
+            if active < min_active:
+                continue
+            prior, recent = prior_totals[sido], recent_totals[sido]
+            growth = (recent - prior) / prior if prior else (float("inf") if recent else 0.0)
+            out.append({"sido": sido, "active": active, "recent": recent, "prior": prior, "growth": growth})
+        return sorted(out, key=lambda r: -r["recent"])
 
     def saturation_signal(self, sido_prefix: str, recent_n: int = 6,
                            min_active: int = 20) -> list[tuple[str, int, int, float]]:

@@ -163,6 +163,96 @@ def test_saturation_signal_excludes_small_sample_districts():
     assert s.saturation_signal("서울특별시", min_active=20) == []
 
 
+def test_sido_growth_aggregates_districts_within_same_sido():
+    """서울 두 개 구(마포·강남)를 합산한 게 시도 합계여야 한다 — 개별 구가 아니라."""
+    s = ld.CategoryStats(
+        "x", "x", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 마포구": 100, "서울특별시 강남구": 50, "부산광역시 해운대구": 30},
+        by_sigungu_monthly={
+            "서울특별시 마포구": {f"2025-{m:02d}": 10 for m in range(1, 7)},
+            "서울특별시 강남구": {f"2025-{m:02d}": 5 for m in range(1, 7)},
+            "부산광역시 해운대구": {f"2025-{m:02d}": 2 for m in range(1, 7)},
+        },
+    )
+    rows = {r["sido"]: r for r in s.sido_growth(recent_n=6, today=date(2025, 7, 15))}
+    assert rows["서울특별시"]["recent"] == 90  # (10+5)*6
+    assert rows["서울특별시"]["active"] == 150  # 100+50
+    assert rows["부산광역시"]["recent"] == 12  # 2*6
+
+
+def test_sido_growth_excludes_current_incomplete_month_from_both_windows():
+    """
+    saturation_signal·regional_stats는 "이력 있는 마지막 N개월"이라 진행 중인 이번 달이
+    (0건이 아닌 한) 최근 구간에 그대로 섞인다. sido_growth는 전국 단위 결론(예: "서울·
+    부산만 성장")을 내는 데 쓰이므로 그 편향을 없애려고 이번 달을 아예 뺀다 — 이번
+    달에 이미 데이터가 있어도(진행 중이라 미완결일 뿐 0은 아님) 창에서 빠져야 한다.
+    """
+    monthly = {f"2025-{m:02d}": 10 for m in range(1, 7)}
+    monthly["2025-07"] = 999  # 이번 달(today=7/15) — 값이 커도 두 창 어디에도 안 잡혀야 함
+    s = ld.CategoryStats(
+        "x", "x", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 마포구": 60},
+        by_sigungu_monthly={"서울특별시 마포구": monthly},
+    )
+    row = next(r for r in s.sido_growth(recent_n=6, today=date(2025, 7, 15)) if r["sido"] == "서울특별시")
+    assert row["recent"] == 60  # 1~6월 합, 7월(999)은 제외
+    assert row["prior"] == 0    # 2024-07~12월 이력 없음
+
+
+def test_sido_growth_zero_fills_gap_months_instead_of_skipping():
+    """
+    2월에 등록이 0건이면 by_sigungu_monthly엔 그 달 키 자체가 없다. saturation_signal
+    처럼 "이력 있는 마지막 6개"만 세면 그 구멍만큼 창이 몰래 과거로 늘어나 — 이 함수는
+    시도별로 몇 달치를 비교하는지가 다 달라지면 안 되므로(등록 뜸한 지방일수록 창이
+    늘어나는 쪽으로 편향) 달력상 정확히 recent_n개월, 없는 달은 0으로 채워야 한다.
+    """
+    monthly = {"2025-01": 10, "2025-03": 10, "2025-04": 10, "2025-05": 10, "2025-06": 10}
+    # 2025-02는 키가 없음(0건) — zero-fill 안 하면 12월이 recent 창에 끌려 들어온다.
+    s = ld.CategoryStats(
+        "x", "x", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 마포구": 50},
+        by_sigungu_monthly={"서울특별시 마포구": monthly},
+    )
+    row = next(r for r in s.sido_growth(recent_n=6, today=date(2025, 7, 15)) if r["sido"] == "서울특별시")
+    assert row["recent"] == 50, "1~6월 6개월 합(2월은 0으로 채움) — 12월까지 끌려오면 60이 된다"
+
+
+def test_sido_growth_growth_rate_and_zero_prior_handling():
+    # 직전(2024-07~12) 월 5건씩, 최근(2025-01~06) 월 20건씩 — 뚜렷한 성장 케이스.
+    monthly_growing = {f"2024-{m:02d}": 5 for m in range(7, 13)}
+    monthly_growing |= {f"2025-{m:02d}": 20 for m in range(1, 7)}
+    s = ld.CategoryStats(
+        "x", "x", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 마포구": 100, "제주특별자치도 제주시": 10},
+        by_sigungu_monthly={
+            "서울특별시 마포구": monthly_growing,
+            "제주특별자치도 제주시": {"2025-05": 3},  # prior 구간엔 이력 전무
+        },
+    )
+    rows = {r["sido"]: r for r in s.sido_growth(recent_n=6, today=date(2025, 7, 15))}
+    mapo = rows["서울특별시"]
+    assert mapo["prior"] == 30 and mapo["recent"] == 120  # 2024년 하반기 5*6=30, 2025 상반기 20*6=120
+    assert mapo["growth"] == 3.0  # (120-30)/30
+    jeju = rows["제주특별자치도"]
+    assert jeju["prior"] == 0 and jeju["recent"] == 3
+    assert jeju["growth"] == float("inf"), "직전 구간 0건인데 최근엔 등록이 있으면 inf(신규 유입)"
+
+
+def test_sido_growth_min_active_excludes_tiny_sido():
+    """세종처럼 영업중 1곳뿐인 시도는 0/0 같은 비율이 그대로 나와 노이즈만 된다 —
+    saturation_signal의 min_active와 같은 방식으로 걸러야 한다."""
+    s = ld.CategoryStats(
+        "x", "x", active=0, closed=0, pause=0, total=0,
+        by_sigungu={"서울특별시 마포구": 100, "세종특별자치시 세종시": 1},
+        by_sigungu_monthly={
+            "서울특별시 마포구": {f"2025-{m:02d}": 10 for m in range(1, 7)},
+            "세종특별자치시 세종시": {},
+        },
+    )
+    sidos = {r["sido"] for r in s.sido_growth(recent_n=6, today=date(2025, 7, 15), min_active=20)}
+    assert sidos == {"서울특별시"}
+
+
 def test_dedup_skips_rows_without_address():
     rows = [{"관리번호": "Z", "도로명주소": "", "지번주소": "", "영업상태명": "영업중",
               "최종수정시점": "1"}]
