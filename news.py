@@ -163,6 +163,21 @@ def _parse_rss_image(block: str) -> str | None:
     return None
 
 
+# <author> 태그에 사람 이름이 아니라 매체명 그 자체를 넣는 곳이 있다(실측: 매일경제는
+# <author>매일경제</author>). 그건 "누구에게 피칭할지"에 아무 정보가 없는 것과 같으니
+# reporter로 남기지 않는다 — source와 대소문자 무관 일치, 또는 개인이 아닌 부서명이면 버린다.
+_GENERIC_BYLINES = {"편집부", "편집팀", "취재팀", "뉴스룸", "기자단", "관리자"}
+
+
+def _normalize_reporter(raw: str, source: str) -> str | None:
+    name = raw.strip()
+    if name.endswith("기자"):
+        name = name[:-2].strip()
+    if not name or name == source or name in _GENERIC_BYLINES:
+        return None
+    return name
+
+
 def parse_rss(xml_text: str, source: str) -> list[Item]:
     items = []
     for block in re.findall(r"<item[ >].*?</item>", xml_text, re.S):
@@ -170,11 +185,13 @@ def parse_rss(xml_text: str, source: str) -> list[Item]:
         link = _tag(block, "link")
         if not (title and link):
             continue
+        author = _tag(block, "author")
         items.append(Item(
             source=source, title=title, url=link,
             date=_parse_pubdate(_tag(block, "pubDate")),
             summary=_tag(block, "description")[:200],
             image=_parse_rss_image(block),
+            reporter=_normalize_reporter(author, source) if author else None,
         ))
     return items
 

@@ -44,6 +44,8 @@ class Item:
     date: str | None = None
     summary: str = ""
     image: str | None = None
+    reporter: str | None = None  # RSS <author>에서 뽑은 개인 바이라인. 매체명뿐이거나
+    # 태그 자체가 없으면 None — press_list.py(기자 피칭 리스트)가 쓴다.
 
     def matches_keywords(self, keywords: list[str] = CORE_KEYWORDS) -> bool:
         """

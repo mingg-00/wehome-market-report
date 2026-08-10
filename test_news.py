@@ -22,6 +22,29 @@ RSS_NO_LINK = """<item>
 <pubDate>2026-07-28 00:00:00</pubDate>
 </item>"""
 
+RSS_AUTHOR_WITH_SUFFIX = """<item>
+<title>서울시-서울관광재단, '2026 우수 서울스테이' 18곳 선정</title>
+<link>https://www.hotelrestaurant.co.kr/news/articleView.html?idxno=1</link>
+<author><![CDATA[이주은 기자]]></author>
+</item>"""
+
+RSS_AUTHOR_NO_SUFFIX = """<item>
+<title>하늘 나는 택시 첫선…제주서 K-UAM 상용화</title>
+<link><![CDATA[https://www.hankyung.com/article/1]]></link>
+<author><![CDATA[김예랑]]></author>
+</item>"""
+
+RSS_AUTHOR_IS_OUTLET_NAME = """<item>
+<title>서울 외국인 부동산 소유자, 1년 새 1000명 넘게 늘었다</title>
+<link>https://www.mk.co.kr/news/realestate/1</link>
+<author>매일경제</author>
+</item>"""
+
+RSS_NO_AUTHOR_TAG = """<item>
+<title>레일유럽 인수한 회사, 여행 플랫폼이라고?</title>
+<link>https://hitchhickr.substack.com/p/1</link>
+</item>"""
+
 RSS_MEDIA_CONTENT = """<item>
 <title>서울 외국인 부동산 소유자, 1년 새 1000명 넘게 늘었다</title>
 <link>https://www.mk.co.kr/news/realestate/1</link>
@@ -106,6 +129,28 @@ def test_rss_cdata_title_and_link():
 
 def test_rss_item_without_link_is_skipped():
     assert news.parse_rss(RSS_NO_LINK, "x") == []
+
+
+def test_rss_author_strips_gija_suffix():
+    items = news.parse_rss(RSS_AUTHOR_WITH_SUFFIX, "호텔앤레스토랑")
+    assert items[0].reporter == "이주은"
+
+
+def test_rss_author_without_suffix_kept_as_is():
+    items = news.parse_rss(RSS_AUTHOR_NO_SUFFIX, "한국경제")
+    assert items[0].reporter == "김예랑"
+
+
+def test_rss_author_equal_to_outlet_name_is_dropped():
+    """<author>매일경제</author>처럼 매체명 그 자체면 개인 바이라인이 아니다 — None이어야
+    press_list.py가 "매일경제"를 사람인 척 피칭 리스트에 올리지 않는다."""
+    items = news.parse_rss(RSS_AUTHOR_IS_OUTLET_NAME, "매일경제")
+    assert items[0].reporter is None
+
+
+def test_rss_missing_author_tag_is_none():
+    items = news.parse_rss(RSS_NO_AUTHOR_TAG, "히치하이커")
+    assert items[0].reporter is None
 
 
 def test_sukbak_parses_two_items_with_absolute_url():
