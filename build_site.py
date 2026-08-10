@@ -1303,15 +1303,52 @@ def write_og_image(iss: Issue) -> None:
     SNS·카카오톡 공유 미리보기용 대표 이미지(1200×630) — site/og.png.
     이게 없으면 링크를 어디에 붙여도 썸네일이 안 뜬다. 로고 에셋이 없으므로 이번 호
     핵심 숫자를 그대로 표지로 쓴다(매달 빌드마다 자동 갱신).
+
+    첫 버전은 flat navy 배경에 텍스트만 왼쪽으로 몰아둔 형태라 "못생겼다"는 피드백을
+    받았다 — 오른쪽 절반이 통째로 비어 밋밋했다. 은은한 민트 글로우, 카드형 배지,
+    실제 최근 12개월 등록 추이를 담은 미니 스파크라인으로 오른쪽을 채워 사이트 본문의
+    카드·민트 포인트 룩과 맞췄다.
     """
+    from matplotlib.patches import Ellipse, FancyBboxPatch
+
     fig = viz.plt.figure(figsize=(12, 6.3), dpi=100)
     fig.patch.set_facecolor(viz.NAVY)
-    fig.text(.06, .80, "SHARED STAY MARKET REPORT", color=viz.MINT, fontsize=17, fontweight="bold")
-    fig.text(.06, .62, "공유숙박 시장, 숫자로 읽습니다", color="white", fontsize=40, fontweight="bold")
-    fig.text(.06, .34, f"{iss.flagship.active:,}", color=viz.MINT, fontsize=66, fontweight="bold")
-    fig.text(.06, .24, f"외도민업 영업중 · 서울 비중 {iss.seoul_share:.0%} · {iss.ym} 기준",
-             color="white", fontsize=19)
-    fig.text(.06, .10, "행정안전부 원본 등록 데이터 직접 집계", color=viz.GREY, fontsize=15)
+
+    # 은은한 글로우 — 완전한 원이 아니어도(figure-fraction 좌표라 12:6.3 비율만큼 타원이
+    # 된다) 배경 장식으로는 문제없다. 진한 배경에 홀로 뜬 텍스트보다 입체감이 생긴다.
+    for cx, cy, w, h, a in [(0.92, 0.78, 0.55, 0.95, 0.10), (0.08, 0.05, 0.45, 0.65, 0.07)]:
+        fig.add_artist(Ellipse((cx, cy), w, h, facecolor=viz.MINT, alpha=a, edgecolor="none",
+                                transform=fig.transFigure))
+
+    # 배지형 킥커 — 사이트 본문의 .kicker(민트 텍스트)보다 공유 미리보기에선 채워진
+    # 배지가 눈에 더 잘 띈다(작은 썸네일 크기로 압축돼 보이는 카카오톡 미리보기 감안).
+    fig.add_artist(FancyBboxPatch((0.06, 0.82), 0.30, 0.085,
+                                   boxstyle="round,pad=0,rounding_size=0.045",
+                                   facecolor=viz.MINT, edgecolor="none", transform=fig.transFigure))
+    fig.text(.21, .862, "WEHOST · 공유숙박 마켓리포트", color=viz.NAVY, fontsize=14.5,
+              fontweight="bold", ha="center", va="center")
+
+    fig.text(.06, .66, "공유숙박 시장,\n숫자로 읽습니다", color="white", fontsize=38,
+              fontweight="bold", linespacing=1.25, va="top")
+    fig.text(.06, .32, f"{iss.flagship.active:,}", color=viz.MINT, fontsize=68, fontweight="bold")
+    fig.text(.062, .225, f"외도민업 영업중 · 서울 비중 {iss.seoul_share:.0%} · {iss.ym} 기준",
+             color="white", fontsize=17)
+    fig.text(.062, .09, "행정안전부 원본 등록 데이터 직접 집계", color=viz.GREY, fontsize=13.5)
+
+    # 오른쪽 하단 미니 스파크라인 — 실제 최근 12개월 신규등록 추이. 장식이 아니라
+    # 진짜 데이터라 "숫자로 읽습니다" 카피와 내용이 맞물린다. 이번 달(진행 중이라 집계가
+    # 덜 찬 달)은 항상 막대가 짧게 나와 마치 방금 꺾인 것처럼 보인다 — 빼고 완결된
+    # 12개월만 쓴다(sido_growth 등 다른 트렌드 계산도 같은 이유로 이번 달을 제외한다).
+    current_ym = date.today().strftime("%Y-%m")
+    months = [(ym, c) for ym, c in iss.flagship.recent_months(13) if ym != current_ym][-12:]
+    if months:
+        ax = fig.add_axes([0.60, 0.10, 0.34, 0.30])
+        vals = [c for _, c in months]
+        colors = [viz.MINT if i == len(vals) - 1 else "#3d4d6e" for i in range(len(vals))]
+        ax.bar(range(len(vals)), vals, color=colors, width=0.62)
+        ax.set_facecolor("none")
+        ax.axis("off")
+
     fig.savefig(SITE / "og.png", facecolor=viz.NAVY)
     viz.plt.close(fig)
 
