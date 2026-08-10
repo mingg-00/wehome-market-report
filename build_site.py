@@ -84,7 +84,7 @@ SEOUL, BUSAN = "서울특별시", "부산광역시"
 WEHOME_HOST_SIGNUP_URL = os.getenv("WEHOME_HOST_SIGNUP_URL", "https://www.wehome.me")
 
 
-def wehome_cta_url(content: str) -> str:
+def wehome_cta_url(content: str, base: str | None = None) -> str:
     """
     위홈 CTA 클릭 추적용 UTM 링크. utm_content로 클릭 위치를 구분한다(landing_hero/
     dashboard_banner/report_detail/estimate_result) — KPI '위홈 유입'(REPORT_SPEC.md,
@@ -93,10 +93,14 @@ def wehome_cta_url(content: str) -> str:
       utm_medium=referral            — 유료 광고가 아닌 자체 사이트 유입
       utm_campaign=market_report     — 캠페인 단위(추후 발행호별로 나눌 수도 있음)
       utm_content=<content>          — 클릭한 위치
+
+    base를 안 주면 WEHOME_HOST_SIGNUP_URL(기본 홈페이지)로 간다. guide.html처럼
+    "등록증 받은 다음엔 이 특정 페이지로" 보내야 할 때만 base로 override한다 —
+    나머지 CTA는 실제 가입 딥링크가 아직 불확실해 여전히 홈페이지가 안전한 기본값이다.
     """
     params = {"utm_source": "wehome_market_report", "utm_medium": "referral",
               "utm_campaign": "market_report", "utm_content": content}
-    return f"{WEHOME_HOST_SIGNUP_URL}?{urlencode(params)}"
+    return f"{base or WEHOME_HOST_SIGNUP_URL}?{urlencode(params)}"
 
 
 # ─────────────────────────────────────────────────────── 스냅샷 · 아카이브
@@ -985,6 +989,16 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 .pitch div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .pitch .t{font-weight:750;font-size:14.5px}
 .pitch .d{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.6}
+.pitch .ic{font-size:22px;line-height:1;margin-bottom:8px}
+.stepList{display:flex;flex-direction:column;gap:0;margin:22px 0}
+.step{display:flex;gap:16px;padding:16px 0}
+.step:not(:last-child){border-bottom:1px dashed var(--line)}
+.stepNo{flex:0 0 auto;width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;
+ display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px}
+:root[data-theme="dark"] .stepNo{background:var(--mint);color:#04211c}
+@media(prefers-color-scheme:dark){.stepNo{background:var(--mint);color:#04211c}}
+.step .t{font-weight:750;font-size:14.5px}
+.step .d{font-size:13.5px;color:var(--muted);margin-top:3px;line-height:1.6}
 .previewCard{background:var(--card);border:1px solid var(--line);border-radius:16px;
  padding:22px 24px;margin:22px 0}
 .previewCard .kpis{margin:16px 0 6px}
@@ -1056,6 +1070,7 @@ def nav(active: str, depth: int = 0) -> str:
     items = [("landing", "홈", f"{p}index.html"),
              ("dashboard", "대시보드", f"{p}dashboard.html"),
              ("estimate", "지역별 시장 지표", f"{p}estimate.html"),
+             ("guide", "호스트 가이드", f"{p}guide.html"),
              ("news", "뉴스", f"{p}news.html"),
              ("competitors", "글로벌 OTA 뉴스룸", f"{p}competitors.html"),
              ("reports", "월간 리포트", f"{p}reports.html")]
@@ -1169,7 +1184,7 @@ def sitemap_entries(issue_yms: list[str], current_ym: str) -> list[tuple[str, st
     today = date.today().isoformat()
     entries = [(p, today) for p in
                ("", "dashboard.html", "reports.html", "news.html", "competitors.html",
-                "estimate.html", "data-trust.html")]
+                "estimate.html", "guide.html", "data-trust.html")]
     return entries + [(f"report/{ym}.html", today if ym == current_ym else f"{ym}-01")
                       for ym in issue_yms]
 
@@ -1671,6 +1686,130 @@ def render_reports_index(d: SiteData) -> str:
 <div class="archive" style="margin-top:24px">{cards}</div>
 {footer(0)}"""
     return page("월간 리포트", "reports", 0, body, "공유숙박 시장 월간 리포트 발행 이력.", path="reports.html")
+
+
+# ─────────────────────────────────────────────────────── 호스트 시작 가이드
+
+def render_guide(d: SiteData) -> str:
+    """
+    "외도민업을 어떻게 시작하나요"에 대한 답 — 위홈 공식 안내(wehome.me/trust/ko/urbanstay)와
+    문화체육관광부 지침(2025.10.10 개정)을 근거로 정리했다. 지자체별로 서류 양식·안전점검
+    요구가 달라질 수 있어(예: 30년 연한 폐지 이후에도 서울 중구청은 노후주택 안전점검을
+    요구하는 사례가 있다), 세부 요건은 항상 관할 구청 확인을 전제로 안내한다 — 이 페이지가
+    등록 결과를 보장하지 않는다.
+    """
+    active = d.current.flagship.active
+    body = f"""
+<div class="kicker">HOST GUIDE</div>
+<h1>외도민업, 어떻게 시작하나요?</h1>
+<div class="sub">외국인관광 도시민박업(외도민업) 등록 요건부터 신청 절차, 등록 이후 위홈
+특례 신청까지 순서대로 정리했습니다. 현재 전국에 {active:,}곳이 영업 중입니다.</div>
+
+<h2>외도민업이란?</h2>
+<div class="note">도시지역 주민이 자신이 실제 거주하는 주택을 이용해 외국인 관광객에게
+한국의 가정문화를 체험할 수 있는 숙식을 제공하는 관광사업입니다. 원칙적으로 외국인만
+숙박할 수 있는데, 위홈처럼 공유숙박 특례를 받은 곳을 통하면 특례 범위(연 180일) 안에서
+내국인 숙박도 합법적으로 받을 수 있습니다.</div>
+
+<h2>등록 요건 체크리스트</h2>
+<div class="h2sub">문체부 지침(2025.10.10 개정) 기준 — 자치구별로 세부 요건이 다를 수 있어
+신청 전 관할 구청 문화관광과 확인을 권장합니다.</div>
+<div class="pitch">
+  <div><div class="ic">🏠</div><div class="t">연면적 230㎡ 미만 주택</div>
+    <div class="d">단독·다가구·다세대·아파트·연립주택만 해당. 오피스텔·원룸형 주택은 등록 대상이
+    아닙니다(원룸형은 호스트가 함께 머물 공간이 없어 독채 숙박 구조가 되기 때문).</div></div>
+  <div><div class="ic">🪪</div><div class="t">신청인 실거주(전입신고 필수)</div>
+    <div class="d">호스트가 그 집에 실제로 살고 있어야 하고, 전입신고가 돼 있어야 합니다.
+    호스트가 상주해야 하는 구조라 독채 예약은 원칙적으로 불가능합니다.</div></div>
+  <div><div class="ic">🗣️</div><div class="t">외국어 안내 가능</div>
+    <div class="d">신청인 또는 동거 세대원이 외국어로 식사·가정문화 체험·생활 안내를 할 수
+    있어야 합니다.</div></div>
+  <div><div class="ic">🧯</div><div class="t">소방시설</div>
+    <div class="d">소화기 1개 이상, 객실마다 단독경보형감지기(화재경보기), 개별난방이면
+    일산화탄소경보기까지 설치해야 합니다.</div></div>
+  <div><div class="ic">🏚️</div><div class="t">30년 연한 요건은 폐지(2025.10.10)</div>
+    <div class="d">과거의 '사용승인 30년 이상' 요건은 없어졌습니다. 다만 노후 주택은 지자체가
+    별도 안전점검을 요구하는 사례가 있습니다(서울 중구청 등) — 오래된 주택이라면 관할 구청에
+    먼저 확인하는 게 안전합니다.</div></div>
+  <div><div class="ic">📍</div><div class="t">등록 문의처는 자치구</div>
+    <div class="d">전국 공통 제도지만 접수·심사는 관할 특별자치도·시·군·구(문화관광과)가
+    담당합니다. 온라인 일괄 신청 창구는 없고 방문 접수가 원칙입니다.</div></div>
+</div>
+
+<h2>신청 절차</h2>
+<div class="h2sub">접수부터 등록증 교부까지 약 14일 — 서류 보완이 필요하면 더 걸릴 수
+있습니다.</div>
+<div class="stepList">
+  <div class="step"><div class="stepNo">1</div><div>
+    <div class="t">서류 준비</div>
+    <div class="d">관광사업 등록신청서, 사업계획서, 부동산 소유·사용권 증명서류, 시설
+    평면도·배치도를 갖춥니다(아래 §필요 서류 참고).</div></div></div>
+  <div class="step"><div class="stepNo">2</div><div>
+    <div class="t">관할 구청 문화관광과 방문 접수</div>
+    <div class="d">주소지 관할 특별자치도·시·군·구청에 서류를 제출합니다. 수수료
+    20,000원이 이 단계에서 발생합니다.</div></div></div>
+  <div class="step"><div class="stepNo">3</div><div>
+    <div class="t">결격사유 조회·서류 심사</div>
+    <div class="d">신청인 결격사유 조회와 제출 서류 심사가 진행됩니다(3~4일 소요).</div></div></div>
+  <div class="step"><div class="stepNo">4</div><div>
+    <div class="t">현장 실사</div>
+    <div class="d">소방시설 등을 담당 공무원(필요시 소방서와 합동)이 직접 방문해
+    확인합니다.</div></div></div>
+  <div class="step"><div class="stepNo">5</div><div>
+    <div class="t">등록증 교부·면허세 납부</div>
+    <div class="d">관광사업 등록증을 받으면 등록 완료입니다. 이후 면허세를 납부하고,
+    세무서에서 사업자등록도 진행합니다.</div></div></div>
+</div>
+
+<h2>필요 서류</h2>
+<div class="pitch">
+  <div><div class="t">관광사업 등록신청서</div><div class="d">관할 구청 지정 서식(별지 제1호서식 등,
+  자치구마다 명칭이 다를 수 있음).</div></div>
+  <div><div class="t">사업계획서</div><div class="d">별도 지정 서식은 없고, 운영 계획을 서술 형식으로
+  작성합니다.</div></div>
+  <div><div class="t">부동산 소유·사용권 증명서류</div><div class="d">본인 소유면 건물·토지 등기부등본,
+  임차면 임대차계약서 사본.</div></div>
+  <div><div class="t">시설 평면도·배치도</div><div class="d">객실 배치와 소방시설 위치가 보이게
+  준비합니다.</div></div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="l">수수료</div><div class="v">20,000원</div></div>
+  <div class="kpi"><div class="l">처리기간</div><div class="v">약 14일</div>
+    <div class="d">서류 보완 시 더 걸릴 수 있음</div></div>
+</div>
+
+<h2>꼭 알아야 할 제약사항</h2>
+<div class="note warn">① 원칙적으로 <b>외국인만 숙박 가능</b>합니다 — 내국인 숙박은 위홈처럼
+공유숙박 특례를 받은 채널을 통하지 않으면 불법입니다. ② <b>오피스텔·원룸형 주택은 등록
+대상이 아닙니다.</b> ③ 호스트가 상주해야 하는 구조라 <b>독채 예약은 원칙적으로
+불가능</b>합니다.</div>
+
+<div class="ctaBanner">
+  <div class="t">관광사업 등록증을 받았다면</div>
+  <div class="d">위홈 호스트로 등록해 공유숙박 특례를 신청하면, 서울·부산에서는 내국인
+  예약까지 합법적으로 받을 수 있습니다. 지역·보유 등록증 유형에 맞는 신청 경로를 안내받으세요.</div>
+  <a class="wehomeCta" href="{wehome_cta_url('guide_cta', 'https://www.wehome.me/trust/ko/host-application/')}"
+     target="_blank" rel="noopener">위홈 호스트 등록 방식 확인하기 →</a>
+</div>
+
+<div class="ctaBanner">
+  <div class="t">아직 어느 지역에서 시작할지 못 정했다면</div>
+  <div class="d">등록만큼 중요한 건 위치입니다 — 지역별 등록 밀도·최근 증감률·진입 적합도
+  지수를 먼저 확인해보세요.</div>
+  <a class="wehomeCta" href="estimate.html">지역별 시장 지표 보러 가기 →</a>
+</div>
+
+<div class="note">이 페이지는 <a href="https://www.wehome.me/trust/ko/urbanstay/" target="_blank"
+rel="noopener">위홈 공식 안내</a>와 문화체육관광부 「외국인관광 도시민박업 업무처리(등록·관리)
+지침」(2025.10.10 개정)을 바탕으로 정리했습니다. 자치구별로 서류 서식·세부 요건이 다를 수 있어
+등록 결과를 보장하지 않으며, 정확한 안내는 관할 구청 문화관광과에서 받으시길 권합니다. 제도 자체
+문의는 문화체육관광부 관광산업정책과(044-203-2862/2864).</div>
+
+{footer(0)}"""
+    return page("호스트 가이드", "guide", 0, body,
+                "외국인관광 도시민박업(외도민업) 등록 요건·신청 절차·필요 서류와 위홈 특례 "
+                "신청까지 정리한 호스트 시작 가이드.", path="guide.html")
 
 
 # ─────────────────────────────────────────────────────── 데이터 출처·신뢰도
@@ -2538,6 +2677,7 @@ def build() -> None:
     (SITE / "reports.html").write_text(render_reports_index(d), encoding="utf-8")
     (SITE / "news.html").write_text(render_news(d), encoding="utf-8")
     (SITE / "competitors.html").write_text(render_competitors(d), encoding="utf-8")
+    (SITE / "guide.html").write_text(render_guide(d), encoding="utf-8")
     (SITE / "data-trust.html").write_text(render_data_trust(d), encoding="utf-8")
     (SITE / "estimate.html").write_text(render_estimate(d, regions, csv_path), encoding="utf-8")
 
