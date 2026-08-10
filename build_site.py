@@ -1800,13 +1800,13 @@ def render_guide(d: SiteData) -> str:
 
 <h2>필요 서류</h2>
 <div class="pitch">
-  <div><div class="t">관광사업 등록신청서</div><div class="d">관할 구청 지정 서식(별지 제1호서식 등,
+  <div><div class="ic">📋</div><div class="t">관광사업 등록신청서</div><div class="d">관할 구청 지정 서식(별지 제1호서식 등,
   자치구마다 명칭이 다를 수 있음).</div></div>
-  <div><div class="t">사업계획서</div><div class="d">별도 지정 서식은 없고, 운영 계획을 서술 형식으로
+  <div><div class="ic">📝</div><div class="t">사업계획서</div><div class="d">별도 지정 서식은 없고, 운영 계획을 서술 형식으로
   작성합니다.</div></div>
-  <div><div class="t">부동산 소유·사용권 증명서류</div><div class="d">본인 소유면 건물·토지 등기부등본,
+  <div><div class="ic">📑</div><div class="t">부동산 소유·사용권 증명서류</div><div class="d">본인 소유면 건물·토지 등기부등본,
   임차면 임대차계약서 사본.</div></div>
-  <div><div class="t">시설 평면도·배치도</div><div class="d">객실 배치와 소방시설 위치가 보이게
+  <div><div class="ic">📐</div><div class="t">시설 평면도·배치도</div><div class="d">객실 배치와 소방시설 위치가 보이게
   준비합니다.</div></div>
 </div>
 
