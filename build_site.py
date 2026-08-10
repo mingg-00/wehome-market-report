@@ -993,8 +993,8 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 .pitch .ic{display:flex;align-items:center;justify-content:center;width:42px;height:42px;
  font-size:20px;line-height:1;margin-bottom:12px;background:var(--bg);
  border:1px solid var(--line);border-radius:10px}
-.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin:18px 0 28px}
-.formFig{margin:0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.pitchDocs{grid-template-columns:1fr}
+.formFig{margin:14px 0 0;max-width:560px}
 .formFig img{width:100%;height:auto;border-radius:8px;display:block;border:1px solid var(--line)}
 .formFig figcaption{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.5}
 .stepList{display:flex;flex-direction:column;gap:0;margin:22px 0}
@@ -1933,30 +1933,41 @@ def render_guide(d: SiteData) -> str:
 </div>
 
 <h2>필요 서류</h2>
-<div class="pitch">
+<div class="pitch pitchDocs">
   <div><div class="ic">📋</div><div class="t">관광사업 등록신청서</div><div class="d">전국 공통 표준 서식(관광진흥법
   시행규칙 별지 제1호서식) — <a href="https://www.law.go.kr/LSW/lsLawLinkInfo.do?lsJoLnkSeq=1000558406"
   target="_blank" rel="noopener">국가법령정보센터에서 원본 내려받기</a>. 자치구가 별도 서식을 요구하는 경우는
-  드물지만, 접수 전 관할 구청에 최신 서식 여부를 확인하는 게 안전합니다.</div></div>
+  드물지만, 접수 전 관할 구청에 최신 서식 여부를 확인하는 게 안전합니다.
+    <figure class="formFig">
+      <img src="assets/guide/form_example.jpg" alt="관광사업 등록신청서 작성 예시 — 빨간 글씨로 각 칸에 무엇을 적어야 하는지 표시" loading="lazy">
+      <figcaption>작성 예시(빨간 글씨) — 성명·주소·상호(명칭)·업종(외국인관광 도시민박업)·주사업장
+      소재지·자본금·영업개시 연월일을 채우면 됩니다. 실제 제출 시엔 본인 정보로 바꿔서 작성하세요.</figcaption>
+    </figure>
+  </div></div>
   <div><div class="ic">📝</div><div class="t">사업계획서</div><div class="d">별도 지정 서식은 없고, 운영 계획을 서술 형식으로
-  작성합니다.</div></div>
+  작성합니다.
+    <figure class="formFig">
+      <img src="assets/guide/form_bizplan_example.jpg" alt="사업계획서 작성 예시 — 가상의 인적사항으로 만든 참고용 목업" loading="lazy">
+      <figcaption>작성 예시(가상 데이터) — 사업 개요·시설 개요·운영 계획·손님 관리 계획·비상연락체계 순으로
+      쓰면 됩니다. 실제 서식이 정해져 있지 않으니 이 구성을 참고해 본인 정보로 작성하세요.</figcaption>
+    </figure>
+  </div></div>
   <div><div class="ic">📑</div><div class="t">부동산 소유·사용권 증명서류</div><div class="d">본인 소유면 건물·토지 등기부등본,
-  임차면 임대차계약서 사본.</div></div>
+  임차면 임대차계약서 사본.
+    <figure class="formFig">
+      <img src="assets/guide/form_realestate_example.jpg" alt="등기사항전부증명서(등기부등본) 예시 — 가상의 인적사항으로 만든 참고용 목업" loading="lazy">
+      <figcaption>등기부등본 예시(가상 데이터) — 표제부·갑구·을구로 구성됩니다. 실제 서류는 대법원
+      인터넷등기소(iros.go.kr)에서 본인 소유 부동산 기준으로 발급받으세요.</figcaption>
+    </figure>
+  </div></div>
   <div><div class="ic">📐</div><div class="t">시설 평면도·배치도</div><div class="d">객실 배치와 소방시설 위치가 보이게
-  준비합니다.</div></div>
-</div>
-
-<div class="formGrid">
-  <figure class="formFig">
-    <img src="assets/guide/form_standard.jpg" alt="관광사업 등록신청서 서식(관광진흥법 시행규칙 별지 제1호서식) 원본" loading="lazy">
-    <figcaption>관광사업 등록신청서 원본 — 관광진흥법 시행규칙 별지 제1호서식(2024.11.7 개정).
-    출처: 국가법령정보센터.</figcaption>
-  </figure>
-  <figure class="formFig">
-    <img src="assets/guide/form_example.jpg" alt="관광사업 등록신청서 작성 예시 — 빨간 글씨로 각 칸에 무엇을 적어야 하는지 표시" loading="lazy">
-    <figcaption>작성 예시(빨간 글씨) — 성명·주소·상호(명칭)·업종(외국인관광 도시민박업)·주사업장
-    소재지·자본금·영업개시 연월일을 채우면 됩니다. 실제 제출 시엔 본인 정보로 바꿔서 작성하세요.</figcaption>
-  </figure>
+  준비합니다.
+    <figure class="formFig">
+      <img src="assets/guide/form_floorplan_example.jpg" alt="시설 평면도·배치도 예시 — 객실 배치와 소방시설 위치 표시" loading="lazy">
+      <figcaption>평면도 예시 — 방·화장실 배치와 소화기·단독경보형감지기 위치를 표시하면 됩니다.
+      직접 그리거나 건축도면을 활용해 준비하세요.</figcaption>
+    </figure>
+  </div></div>
 </div>
 
 <div class="kpis">
@@ -1972,9 +1983,8 @@ def render_guide(d: SiteData) -> str:
 <tr><th>자치구</th><th>담당부서</th><th>전화번호</th></tr>
 {"".join(f"<tr><td>{gu}</td><td>{dept}</td><td>{tel}</td></tr>" for gu, dept, tel in SEOUL_GU_CONTACTS)}
 </table></div>
-<div class="note">출처: <a href="https://stay.visitseoul.net/cms/registration1" target="_blank"
-rel="noopener">서울스테이 — 외국인관광 도시민박업 안내</a>(서울관광재단). 담당부서·연락처는 조직 개편으로
-바뀔 수 있어 방문·접수 전 전화로 최신 여부를 한 번 확인하시길 권합니다.</div>
+<div class="note">담당부서·연락처는 조직 개편으로 바뀔 수 있어 방문·접수 전 전화로 최신 여부를
+한 번 확인하시길 권합니다.</div>
 
 <h2>부산 16개 구·군 문의처</h2>
 <div class="h2sub">부산은 서울스테이 같은 시 차원의 통합 안내가 없어, 구·군 16곳 홈페이지를 하나씩
@@ -1985,7 +1995,6 @@ rel="noopener">서울스테이 — 외국인관광 도시민박업 안내</a>(�
 {"".join(f"<tr><td>{gu}</td><td>{dept}</td><td>{tel}{'' if direct else ' (대표)'}</td></tr>"
          for gu, dept, tel, direct in BUSAN_GU_CONTACTS)}
 </table></div>
-<div class="note">출처: 각 구청·군청 공식 홈페이지 부서안내·전화번호 페이지 직접 확인(2026-08).</div>
 
 <h2>대구 9개 구·군 문의처</h2>
 <div class="h2sub">구·군마다 부서명이 달라(북구는 "관광과", 달성군은 "문화체육관광과") 확인 안 된
@@ -1995,7 +2004,6 @@ rel="noopener">서울스테이 — 외국인관광 도시민박업 안내</a>(�
 {"".join(f"<tr><td>{gu}</td><td>{dept}</td><td>{tel}{'' if direct else ' (대표)'}</td></tr>"
          for gu, dept, tel, direct in DAEGU_GU_CONTACTS)}
 </table></div>
-<div class="note">출처: 대구광역시 공식 홈페이지 구·군 전화번호 안내 및 각 구청 홈페이지 직접 확인(2026-08).</div>
 
 <h2>대전 5개 구 문의처</h2>
 <div class="scroll"><table>
@@ -2003,7 +2011,6 @@ rel="noopener">서울스테이 — 외국인관광 도시민박업 안내</a>(�
 {"".join(f"<tr><td>{gu}</td><td>{dept}</td><td>{tel}{'' if direct else ' (대표)'}</td></tr>"
          for gu, dept, tel, direct in DAEJEON_GU_CONTACTS)}
 </table></div>
-<div class="note">출처: 각 구청 공식 홈페이지 직접 확인(2026-08).</div>
 
 <h2>울산 5개 구·군 문의처</h2>
 <div class="scroll"><table>
@@ -2011,8 +2018,8 @@ rel="noopener">서울스테이 — 외국인관광 도시민박업 안내</a>(�
 {"".join(f"<tr><td>{gu}</td><td>{dept}</td><td>{tel}{'' if direct else ' (대표)'}</td></tr>"
          for gu, dept, tel, direct in ULSAN_GU_CONTACTS)}
 </table></div>
-<div class="note">출처: 각 구청·군청 공식 홈페이지 직접 확인(2026-08). 부서 직통번호는 못 찾아 전부
-대표번호입니다 — 문화체육과(또는 문화관광과) 연결을 요청하세요.</div>
+<div class="note">부서 직통번호는 못 찾아 전부 대표번호입니다 — 문화체육과(또는 문화관광과) 연결을
+요청하세요.</div>
 
 <h2>인천 11개 구·군 문의처</h2>
 <div class="h2sub">인천은 2026년 7월 1일부로 자치구가 개편돼(2군 8구 → 2군 9구) 새 구청 상당수가
@@ -2022,8 +2029,6 @@ rel="noopener">서울스테이 — 외국인관광 도시민박업 안내</a>(�
 {"".join(f"<tr><td>{gu}</td><td>{dept}</td><td>{tel}{'' if direct else ' (대표)'}</td></tr>"
          for gu, dept, tel, direct in INCHEON_GU_CONTACTS)}
 </table></div>
-<div class="note">출처: <a href="https://www.incheon.go.kr/IC040205" target="_blank"
-rel="noopener">인천광역시 — 군·구 전화번호 안내</a>.</div>
 
 <h2>그 외 지역 — 주요 도시 문의처</h2>
 <div class="h2sub">경기도만 해도 31개 시·군이라 부산·대구처럼 전 지역을 훑는 대신, 도마다 실제
@@ -2034,7 +2039,6 @@ rel="noopener">인천광역시 — 군·구 전화번호 안내</a>.</div>
 {"".join(f"<tr><td>{sido}</td><td>{si}</td><td>{dept}</td><td>{tel}{'' if direct else ' (대표)'}</td></tr>"
          for sido, si, dept, tel, direct in MAJOR_CITY_CONTACTS)}
 </table></div>
-<div class="note">출처: 각 시청 공식 홈페이지 부서안내·전화번호 페이지 직접 확인(2026-08).</div>
 
 <h2>꼭 알아야 할 제약사항</h2>
 <div class="note warn">① 원칙적으로 <b>외국인만 숙박 가능</b>합니다 — 내국인 숙박은 위홈처럼
