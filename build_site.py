@@ -1964,8 +1964,7 @@ def render_guide(d: SiteData) -> str:
 <div class="pitch pitchDocs">
   <div><div class="ic">{gicon("clipboard")}</div><div class="t">관광사업 등록신청서</div><div class="d">전국 공통 표준 서식(관광진흥법
   시행규칙 별지 제1호서식) — <a href="https://www.law.go.kr/LSW/lsLawLinkInfo.do?lsJoLnkSeq=1000558406"
-  target="_blank" rel="noopener">국가법령정보센터에서 원본 내려받기</a>. 자치구가 별도 서식을 요구하는 경우는
-  드물지만, 접수 전 관할 구청에 최신 서식 여부를 확인하는 게 안전합니다.
+  target="_blank" rel="noopener">국가법령정보센터에서 원본 내려받기</a>.
     <figure class="formFig">
       <img src="assets/guide/form_example.jpg" alt="관광사업 등록신청서 작성 예시 — 빨간 글씨로 각 칸에 무엇을 적어야 하는지 표시" loading="lazy">
       <figcaption>작성 예시(빨간 글씨) — 성명·주소·상호(명칭)·업종(외국인관광 도시민박업)·주사업장
