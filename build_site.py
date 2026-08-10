@@ -1861,6 +1861,37 @@ MAJOR_CITY_CONTACTS = [
 ]
 
 
+# 가이드 페이지 .ic 아이콘 박스용 미니 라인 아이콘(24x24, currentColor 스트로크).
+# 이모지 대신 써서 OS·폰트별로 렌더링이 달라지는 문제를 없앤다.
+GUIDE_ICONS = {
+    "house": '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10.3V20h12v-9.7"/><rect x="10" y="14" width="4" height="6"/>',
+    "id": '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="8.5" cy="12" r="2"/>'
+          '<line x1="13" y1="10" x2="18" y2="10"/><line x1="13" y1="13.2" x2="18" y2="13.2"/>'
+          '<line x1="6.7" y1="16" x2="10.3" y2="16"/>',
+    "speech": '<path d="M5 5h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-9l-4 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>'
+              '<line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="12" x2="13" y2="12"/>',
+    "extinguisher": '<rect x="8.2" y="10" width="7" height="9.6" rx="2.4"/><rect x="10.6" y="7" width="2.6" height="3" rx="0.5"/>'
+                     '<path d="M9 7.5h4"/><path d="M8 13.2h-3.3"/><path d="M4.7 13.2l-1 2.4"/>',
+    "check": '<circle cx="12" cy="12" r="8.4"/><path d="M8.3 12.4 10.7 14.8 15.7 9.6"/>',
+    "pin": '<path d="M12 21s7-7.2 7-12a7 7 0 1 0-14 0c0 4.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/>',
+    "clipboard": '<rect x="6" y="4" width="12" height="16" rx="2"/><rect x="9" y="2.5" width="6" height="3" rx="1"/>'
+                 '<line x1="9" y1="10.3" x2="15" y2="10.3"/><line x1="9" y1="13.3" x2="15" y2="13.3"/>'
+                 '<line x1="9" y1="16.3" x2="13" y2="16.3"/>',
+    "edit": '<path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5V7.5h4"/>'
+            '<path d="M9.3 17.2 9.6 15l6-6 1.7 1.7-6 6-2.3.5z"/>',
+    "layers": '<rect x="5" y="4" width="10" height="13" rx="1.5"/>'
+              '<path d="M9 7h10v13a1.5 1.5 0 0 1-1.5 1.5H9z" fill="var(--bg)"/>'
+              '<line x1="12" y1="10.5" x2="16" y2="10.5"/><line x1="12" y1="13.5" x2="16" y2="13.5"/>',
+    "floorplan": '<rect x="4" y="4" width="16" height="16" rx="1.5"/>'
+                 '<line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="12"/>',
+}
+
+
+def gicon(name: str) -> str:
+    return (f'<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--navy)" '
+            f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{GUIDE_ICONS[name]}</svg>')
+
+
 def render_guide(d: SiteData) -> str:
     """
     "외도민업을 어떻게 시작하나요"에 대한 답 — 위홈 공식 안내(wehome.me/trust/ko/urbanstay)와
@@ -1886,23 +1917,23 @@ def render_guide(d: SiteData) -> str:
 <div class="h2sub">문체부 지침(2025.10.10 개정) 기준 — 자치구별로 세부 요건이 다를 수 있어
 신청 전 관할 구청 문화관광과 확인을 권장합니다.</div>
 <div class="pitch">
-  <div><div class="ic">🏠</div><div class="t">연면적 230㎡ 미만 주택</div>
+  <div><div class="ic">{gicon("house")}</div><div class="t">연면적 230㎡ 미만 주택</div>
     <div class="d">단독·다가구·다세대·아파트·연립주택만 해당. 오피스텔·원룸형 주택은 등록 대상이
     아닙니다(원룸형은 호스트가 함께 머물 공간이 없어 독채 숙박 구조가 되기 때문).</div></div>
-  <div><div class="ic">🪪</div><div class="t">신청인 실거주(전입신고 필수)</div>
+  <div><div class="ic">{gicon("id")}</div><div class="t">신청인 실거주(전입신고 필수)</div>
     <div class="d">호스트가 그 집에 실제로 살고 있어야 하고, 전입신고가 돼 있어야 합니다.
     호스트가 상주해야 하는 구조라 독채 예약은 원칙적으로 불가능합니다.</div></div>
-  <div><div class="ic">🗣️</div><div class="t">외국어 안내 가능</div>
+  <div><div class="ic">{gicon("speech")}</div><div class="t">외국어 안내 가능</div>
     <div class="d">신청인 또는 동거 세대원이 외국어로 식사·가정문화 체험·생활 안내를 할 수
     있어야 합니다.</div></div>
-  <div><div class="ic">🧯</div><div class="t">소방시설</div>
+  <div><div class="ic">{gicon("extinguisher")}</div><div class="t">소방시설</div>
     <div class="d">소화기 1개 이상, 객실마다 단독경보형감지기(화재경보기), 개별난방이면
     일산화탄소경보기까지 설치해야 합니다.</div></div>
-  <div><div class="ic">🏚️</div><div class="t">30년 연한 요건은 폐지(2025.10.10)</div>
+  <div><div class="ic">{gicon("check")}</div><div class="t">30년 연한 요건은 폐지(2025.10.10)</div>
     <div class="d">과거의 '사용승인 30년 이상' 요건은 없어졌습니다. 다만 노후 주택은 지자체가
     별도 안전점검을 요구하는 사례가 있습니다(서울 중구청 등) — 오래된 주택이라면 관할 구청에
     먼저 확인하는 게 안전합니다.</div></div>
-  <div><div class="ic">📍</div><div class="t">등록 문의처는 자치구</div>
+  <div><div class="ic">{gicon("pin")}</div><div class="t">등록 문의처는 자치구</div>
     <div class="d">전국 공통 제도지만 접수·심사는 관할 특별자치도·시·군·구(문화관광과)가
     담당합니다. 온라인 일괄 신청 창구는 없고 방문 접수가 원칙입니다.</div></div>
 </div>
@@ -1934,7 +1965,7 @@ def render_guide(d: SiteData) -> str:
 
 <h2>필요 서류</h2>
 <div class="pitch pitchDocs">
-  <div><div class="ic">📋</div><div class="t">관광사업 등록신청서</div><div class="d">전국 공통 표준 서식(관광진흥법
+  <div><div class="ic">{gicon("clipboard")}</div><div class="t">관광사업 등록신청서</div><div class="d">전국 공통 표준 서식(관광진흥법
   시행규칙 별지 제1호서식) — <a href="https://www.law.go.kr/LSW/lsLawLinkInfo.do?lsJoLnkSeq=1000558406"
   target="_blank" rel="noopener">국가법령정보센터에서 원본 내려받기</a>. 자치구가 별도 서식을 요구하는 경우는
   드물지만, 접수 전 관할 구청에 최신 서식 여부를 확인하는 게 안전합니다.
@@ -1944,7 +1975,7 @@ def render_guide(d: SiteData) -> str:
       소재지·자본금·영업개시 연월일을 채우면 됩니다. 실제 제출 시엔 본인 정보로 바꿔서 작성하세요.</figcaption>
     </figure>
   </div></div>
-  <div><div class="ic">📝</div><div class="t">사업계획서</div><div class="d">별도 지정 서식은 없고, 운영 계획을 서술 형식으로
+  <div><div class="ic">{gicon("edit")}</div><div class="t">사업계획서</div><div class="d">별도 지정 서식은 없고, 운영 계획을 서술 형식으로
   작성합니다.
     <figure class="formFig">
       <img src="assets/guide/form_bizplan_example.jpg" alt="사업계획서 작성 예시 — 가상의 인적사항으로 만든 참고용 목업" loading="lazy">
@@ -1952,7 +1983,7 @@ def render_guide(d: SiteData) -> str:
       쓰면 됩니다. 실제 서식이 정해져 있지 않으니 이 구성을 참고해 본인 정보로 작성하세요.</figcaption>
     </figure>
   </div></div>
-  <div><div class="ic">📑</div><div class="t">부동산 소유·사용권 증명서류</div><div class="d">본인 소유면 건물·토지 등기부등본,
+  <div><div class="ic">{gicon("layers")}</div><div class="t">부동산 소유·사용권 증명서류</div><div class="d">본인 소유면 건물·토지 등기부등본,
   임차면 임대차계약서 사본.
     <figure class="formFig">
       <img src="assets/guide/form_realestate_example.jpg" alt="등기사항전부증명서(등기부등본) 예시 — 가상의 인적사항으로 만든 참고용 목업" loading="lazy">
@@ -1960,7 +1991,7 @@ def render_guide(d: SiteData) -> str:
       인터넷등기소(iros.go.kr)에서 본인 소유 부동산 기준으로 발급받으세요.</figcaption>
     </figure>
   </div></div>
-  <div><div class="ic">📐</div><div class="t">시설 평면도·배치도</div><div class="d">객실 배치와 소방시설 위치가 보이게
+  <div><div class="ic">{gicon("floorplan")}</div><div class="t">시설 평면도·배치도</div><div class="d">객실 배치와 소방시설 위치가 보이게
   준비합니다.
     <figure class="formFig">
       <img src="assets/guide/form_floorplan_example.jpg" alt="시설 평면도·배치도 예시 — 객실 배치와 소방시설 위치 표시" loading="lazy">
