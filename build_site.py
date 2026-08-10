@@ -2159,6 +2159,8 @@ def render_news(d: SiteData) -> str:
 
     by_source: dict[str, list[regulation.Item]] = {}
     for i in d.news_items:
+        if i.source in news.COMPETITOR_SOURCES:
+            continue  # 글로벌 OTA 뉴스룸(competitors.html)에서만 보여준다
         by_source.setdefault(i.source, []).append(i)
 
     cols = ""
