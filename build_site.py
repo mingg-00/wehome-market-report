@@ -693,8 +693,10 @@ def visitor_demand_html(visitors: dict) -> str:
 관광빅데이터(이동통신 기반, 발행 지연 약 30일). 등록 호스트 수(공급)와 별개로 실제 방문 수요
 분포를 보여준다. 시군구는 "시도 시군구" 형식으로 표기해 동명 지역(예: 부산 중구·대구 중구)을
 구분한다.</div>
+<div class="twoCol">
 <div class="scroll"><table><tr><th>#</th><th>시도</th><th style="text-align:right">방문자수</th></tr>{prov_rows}</table></div>
-<div class="scroll"><table><tr><th>#</th><th>시군구</th><th style="text-align:right">방문자수</th></tr>{dist_rows}</table></div>"""
+<div class="scroll"><table><tr><th>#</th><th>시군구</th><th style="text-align:right">방문자수</th></tr>{dist_rows}</table></div>
+</div>"""
 
 
 def entry_index_html(entry_idx: list[dict]) -> str:
@@ -885,6 +887,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .newscard .d{font-size:11px;color:var(--muted);margin-top:4px}
 .compgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px 40px;margin-top:24px}
 @media(max-width:800px){.compgrid{grid-template-columns:1fr}}
+.twoCol{display:grid;grid-template-columns:1fr 1fr;gap:16px 28px}
+@media(max-width:700px){.twoCol{grid-template-columns:1fr}}
 .compcol h3{font-size:14px;font-weight:800;margin:0 0 4px;padding-bottom:10px;
  border-bottom:2px solid var(--mint);display:flex;justify-content:space-between;align-items:baseline}
 .compcol h3 .colarrow{font-size:13px;font-weight:800;color:var(--mint);text-decoration:none;
