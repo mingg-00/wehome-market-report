@@ -27,6 +27,53 @@ def test_page_includes_ga4_script_when_measurement_id_set():
         bs.GA4_MEASUREMENT_ID = original
 
 
+def test_page_omits_og_tags_and_jsonld_without_base_url():
+    original = bs.SITE_BASE_URL
+    bs.SITE_BASE_URL = ""
+    try:
+        html = bs.page("제목", "landing", 0, "<p>본문</p>", path="dashboard.html",
+                       jsonld=bs.dataset_ld("이름", "설명", "dashboard.html", "2026-08"))
+        assert "og:image" not in html
+        assert "application/ld+json" not in html  # dataset_ld가 None을 돌려줘야 한다
+    finally:
+        bs.SITE_BASE_URL = original
+
+
+def test_page_includes_og_image_and_jsonld_with_base_url():
+    original = bs.SITE_BASE_URL
+    bs.SITE_BASE_URL = "https://example.com"
+    try:
+        html = bs.page("제목", "landing", 0, "<p>본문</p>", path="dashboard.html",
+                       jsonld=bs.dataset_ld("이름", "설명", "dashboard.html", "2026-08"))
+        assert '<meta property="og:image" content="https://example.com/og.png">' in html
+        assert '<meta name="twitter:card" content="summary_large_image">' in html
+        assert '"@type": "Dataset"' in html
+        assert '"temporalCoverage": "2026-08"' in html
+    finally:
+        bs.SITE_BASE_URL = original
+
+
+def test_page_includes_naver_verification_only_when_set():
+    original = bs.NAVER_SITE_VERIFICATION
+    try:
+        bs.NAVER_SITE_VERIFICATION = ""
+        assert "naver-site-verification" not in bs.page("제목", "landing", 0, "<p>x</p>")
+        bs.NAVER_SITE_VERIFICATION = "abc123"
+        assert '<meta name="naver-site-verification" content="abc123">' in \
+            bs.page("제목", "landing", 0, "<p>x</p>")
+    finally:
+        bs.NAVER_SITE_VERIFICATION = original
+
+
+def test_sitemap_lastmod_freezes_past_issues_but_not_the_current_one():
+    from datetime import date
+    today = date.today().isoformat()
+    entries = dict(bs.sitemap_entries(["2026-08", "2026-07"], "2026-08"))
+    assert entries["report/2026-08.html"] == today   # 이번 호는 매 빌드 갱신됨
+    assert entries["report/2026-07.html"] == "2026-07-01"  # 지난 호는 안 바뀜
+    assert entries[""] == today
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

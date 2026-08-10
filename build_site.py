@@ -68,6 +68,10 @@ SITE_BASE_URL = os.getenv("SITE_BASE_URL", "").rstrip("/")
 # 세팅"의 전제 — 위홈 유입·트래픽 집계가 이 스크립트에 의존한다. 미설정이면(로컬
 # 개발, 계정 발급 전) 조용히 빼서 개발 중 로컬 트래픽이 실제 속성에 안 섞이게 한다.
 GA4_MEASUREMENT_ID = os.getenv("GA4_MEASUREMENT_ID", "").strip()
+# 네이버 서치어드바이저(searchadvisor.naver.com) 소유 확인 코드. 국내 검색의 절반이
+# 네이버인데 외부 사이트는 여기 등록하지 않으면 아예 색인되지 않는다 — 등록 후 노출까지
+# 2주 걸리므로 값이 생기는 즉시 .env에 넣어야 한다. 미설정이면 조용히 뺀다.
+NAVER_SITE_VERIFICATION = os.getenv("NAVER_SITE_VERIFICATION", "").strip()
 CATEGORY_ORDER = ["foreigner_city_homestays", "hanok_experience", "tourist_pensions",
                    "tourist_accommodations", "rural_homestays"]
 SEOUL, BUSAN = "서울특별시", "부산광역시"
@@ -1027,18 +1031,21 @@ def nav(active: str, depth: int = 0) -> str:
         for key, label, url in items
     )
     return f"""<nav><div class="navin">
-<a class="brand" href="{p}index.html">{TITLE} <span>·</span> WEHOME</a>
+<a class="brand" href="{p}index.html">{TITLE} <span>·</span> WEHOST</a>
 <div class="navlinks">{links}</div>
 </div></nav>"""
 
 
 def page(title: str, active: str, depth: int, body: str, description: str = "", wide: bool = False,
-          path: str = "") -> str:
+          path: str = "", jsonld: dict | None = None) -> str:
     """
     path는 이 페이지의 site/ 루트 기준 상대경로(예: "dashboard.html", "report/2026-08.html",
     루트면 "") — canonical·OG url을 절대경로로 만드는 데만 쓴다. SITE_BASE_URL이 없으면
     (로컬 개발) 이 태그들을 아예 안 낸다 — 가짜 도메인을 SNS 공유 미리보기에 노출시키지
-    않기 위해서다. 로고·대표 이미지 에셋이 없어 og:image는 뺐다.
+    않기 위해서다.
+
+    jsonld는 이 페이지의 구조화 데이터(schema.org). 생성형 검색엔진이 인용할 때 쓰는
+    신호라 데이터를 싣는 페이지에만 붙인다 — 목록성 페이지엔 붙일 게 없어 None이다.
     """
     full_title = f"{title} · {TITLE}"
     ga4 = ""
@@ -1056,7 +1063,15 @@ def page(title: str, active: str, depth: int, body: str, description: str = "", 
               f'<meta property="og:title" content="{full_title}">\n'
               f'<meta property="og:description" content="{description}">\n'
               f'<meta property="og:url" content="{url}">\n'
-              f'<meta name="twitter:card" content="summary">\n')
+              f'<meta property="og:image" content="{SITE_BASE_URL}/og.png">\n'
+              f'<meta property="og:image:width" content="1200">\n'
+              f'<meta property="og:image:height" content="630">\n'
+              f'<meta name="twitter:card" content="summary_large_image">\n')
+    if NAVER_SITE_VERIFICATION:
+        og += f'<meta name="naver-site-verification" content="{NAVER_SITE_VERIFICATION}">\n'
+    if jsonld:
+        og += ('<script type="application/ld+json">'
+               f"{json.dumps(jsonld, ensure_ascii=False)}</script>\n")
     return f"""<title>{full_title}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{description}">
@@ -1065,6 +1080,82 @@ def page(title: str, active: str, depth: int, body: str, description: str = "", 
 <div class="wrap{' wide' if wide else ''}">
 {body}
 </div>"""
+
+
+DATA_PROVENANCE = ("행정안전부 지방행정 인허가 데이터(file.localdata.go.kr) 직접 수집·집계, "
+                    "공공누리 제4유형")
+
+
+def dataset_ld(name: str, description: str, path: str, ym: str) -> dict | None:
+    """
+    데이터를 싣는 페이지용 schema.org Dataset. 생성형 검색엔진에 인용되려면 숫자가
+    어디서 왔고 언제 기준인지가 기계가 읽는 형태로 있어야 한다 — 본문에만 적어두면
+    사람만 본다. SITE_BASE_URL이 없으면 절대 URL을 못 만들어 통째로 생략한다.
+    """
+    if not SITE_BASE_URL:
+        return None
+    return {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": name,
+        "description": description,
+        "url": f"{SITE_BASE_URL}/{path}",
+        "temporalCoverage": ym,
+        "isAccessibleForFree": True,
+        "creator": {"@type": "Organization", "name": "위홈", "url": "https://www.wehome.me"},
+        "license": "https://www.kogl.or.kr/info/license.do",
+        "spatialCoverage": {"@type": "Place", "name": "대한민국"},
+        "includedInDataCatalog": {"@type": "DataCatalog", "name": "행정안전부 지방행정 인허가 데이터"},
+    }
+
+
+def report_ld(iss: Issue) -> dict | None:
+    """월간 리포트 한 호 = 발행물 하나. Dataset이 아니라 Article로 잡는다."""
+    if not SITE_BASE_URL:
+        return None
+    return {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": f"공유숙박 마켓리포트 {iss.ym}",
+        "description": f"{iss.ym} 기준 외국인관광도시민박업 영업중 {iss.flagship.active:,}곳, "
+                       f"서울 비중 {iss.seoul_share:.0%}.",
+        "url": f"{SITE_BASE_URL}/report/{iss.ym}.html",
+        "datePublished": f"{iss.ym}-01",
+        "author": {"@type": "Organization", "name": "위홈", "url": "https://www.wehome.me"},
+        "publisher": {"@type": "Organization", "name": TITLE},
+        "isAccessibleForFree": True,
+    }
+
+
+def sitemap_entries(issue_yms: list[str], current_ym: str) -> list[tuple[str, str]]:
+    """
+    (경로, lastmod) 목록. lastmod가 없으면 크롤러는 이 사이트가 매달 갱신된다는 걸
+    모른다. 지난 호 리포트는 발행 후 안 바뀌므로 자기 달 1일을 주고, 이번 호와
+    나머지 페이지는 매 빌드 갱신되므로 오늘 날짜를 준다.
+    """
+    today = date.today().isoformat()
+    entries = [(p, today) for p in
+               ("", "dashboard.html", "reports.html", "news.html", "competitors.html", "estimate.html")]
+    return entries + [(f"report/{ym}.html", today if ym == current_ym else f"{ym}-01")
+                      for ym in issue_yms]
+
+
+def write_og_image(iss: Issue) -> None:
+    """
+    SNS·카카오톡 공유 미리보기용 대표 이미지(1200×630) — site/og.png.
+    이게 없으면 링크를 어디에 붙여도 썸네일이 안 뜬다. 로고 에셋이 없으므로 이번 호
+    핵심 숫자를 그대로 표지로 쓴다(매달 빌드마다 자동 갱신).
+    """
+    fig = viz.plt.figure(figsize=(12, 6.3), dpi=100)
+    fig.patch.set_facecolor(viz.NAVY)
+    fig.text(.06, .80, "SHARED STAY MARKET REPORT", color=viz.MINT, fontsize=17, fontweight="bold")
+    fig.text(.06, .62, "공유숙박 시장, 숫자로 읽습니다", color="white", fontsize=40, fontweight="bold")
+    fig.text(.06, .34, f"{iss.flagship.active:,}", color=viz.MINT, fontsize=66, fontweight="bold")
+    fig.text(.06, .24, f"외도민업 영업중 · 서울 비중 {iss.seoul_share:.0%} · {iss.ym} 기준",
+             color="white", fontsize=19)
+    fig.text(.06, .10, "행정안전부 원본 등록 데이터 직접 집계", color=viz.GREY, fontsize=15)
+    fig.savefig(SITE / "og.png", facecolor=viz.NAVY)
+    viz.plt.close(fig)
 
 
 FOOTER = """<footer>
@@ -1201,7 +1292,11 @@ def render_landing(d: SiteData) -> str:
 {SUBSCRIBE_FORM_JS}"""
     return page("숫자로 읽는 공유숙박 시장", "landing", 0, body,
                 "행정안전부 원본 데이터 기반 공유숙박 시장 월간 리포트. "
-                f"외도민업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}.", path="")
+                f"외도민업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}.", path="",
+                jsonld=dataset_ld(
+                    "공유숙박(외국인관광도시민박업) 등록 현황",
+                    f"{c.ym} 기준 전국 외국인관광도시민박업 영업중 {c.flagship.active:,}곳. "
+                    f"{DATA_PROVENANCE}.", "", c.ym))
 
 
 def bills_html(reg_bills: dict[str, list[regulation.BillMatch]]) -> str:
@@ -1367,7 +1462,12 @@ def render_dashboard(d: SiteData) -> str:
 </script>"""
     return page("대시보드", "dashboard", 0, body,
                 f"외국인관광도시민박업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}. "
-                "행정안전부 공공데이터 기반 공유숙박 시장 대시보드.", path="dashboard.html")
+                "행정안전부 공공데이터 기반 공유숙박 시장 대시보드.", path="dashboard.html",
+                jsonld=dataset_ld(
+                    "공유숙박 시장 대시보드 — 등록 추이·지역별 분포",
+                    f"{c.ym} 기준 외국인관광도시민박업 영업중 {c.flagship.active:,}곳, "
+                    f"서울 비중 {c.seoul_share:.0%}. 카테고리별·시군구별 집계. "
+                    f"{DATA_PROVENANCE}.", "dashboard.html", c.ym))
 
 
 # ─────────────────────────────────────────────────────── 리포트 아카이브
@@ -1526,14 +1626,12 @@ def render_competitors(d: SiteData) -> str:
 
 # ─────────────────────────────────────────────────────── 지역별 시장 지표
 
-def render_estimate(d: SiteData) -> str:
+def compute_regions(d: SiteData) -> tuple[list[dict], dict[str, list[dict]]]:
     """
-    "지역을 고르면 예상 수익을 보여달라" 요청에 대한 응답 — 단 AirDNA류의
-    "예상 수익(원/박)" 숫자를 우리가 만들어내진 않는다. 등록 밀도·증감률(자체 집계)에
-    더해, 야놀자리서치가 이미 공개 발행한 ADR·OCC·RevPAR(공유숙박 부문, NOL+AirDNA+
-    산하정보기술 블렌딩 — yanolja_perf.py)을 있는 그대로 얹는다. 다만 이 API는 광역
-    10개 권역 단위라 시군구별로 나오지 않는다 — 선택한 시도가 매핑되는 권역이 있을
-    때만 보여주고, 없으면 조용히 숨긴다(억지로 인접 권역 수치를 끼워 보여주지 않는다).
+    시군구 단위 지표 — estimate.html(SPA 조회 도구)과 area/*.html(지역별 정적 페이지,
+    render_district_page) 양쪽이 쓰는 공통 계산. 등급(tier)·추세(trend)·판정(verdict)·
+    전국/시도 순위·진입 적합도(entry)까지 여기서 다 붙여서 두 렌더러가 같은 걸 두 번
+    계산하지 않게 한다.
 
     ponytail: 성장/위축 경계값(±15%)과 규모 티어(사분위수)는 단순 임계값이다.
     """
@@ -1585,7 +1683,6 @@ def render_estimate(d: SiteData) -> str:
     regions.sort(key=lambda r: -r["active"])
     for i, r in enumerate(regions, 1):
         r["national_rank"] = i
-    national_total = len(regions)
 
     by_sido_group: dict[str, list[dict]] = {}
     for r in regions:
@@ -1602,10 +1699,27 @@ def render_estimate(d: SiteData) -> str:
     # 으로 지수 계산에서 빠진 구는 entry가 None — 0점으로 채우지 않고 "산정 불가"로 안내한다.
     entry_by_region = {f"{e['sido']} {e['sigungu']}": {**e, "ei_rank": i}
                         for i, e in enumerate(d.entry_index, 1)}
-    ei_total = len(d.entry_index)
-    ei_avg = round(statistics.mean(e["index"] for e in d.entry_index)) if d.entry_index else 0
     for r in regions:
         r["entry"] = entry_by_region.get(f"{r['sido']} {r['sigungu']}")
+
+    return regions, by_sido_group
+
+
+def render_estimate(d: SiteData, regions: list[dict]) -> str:
+    """
+    "지역을 고르면 예상 수익을 보여달라" 요청에 대한 응답 — 단 AirDNA류의
+    "예상 수익(원/박)" 숫자를 우리가 만들어내진 않는다. 등록 밀도·증감률(자체 집계)에
+    더해, 야놀자리서치가 이미 공개 발행한 ADR·OCC·RevPAR(공유숙박 부문, NOL+AirDNA+
+    산하정보기술 블렌딩 — yanolja_perf.py)을 있는 그대로 얹는다. 다만 이 API는 광역
+    10개 권역 단위라 시군구별로 나오지 않는다 — 선택한 시도가 매핑되는 권역이 있을
+    때만 보여주고, 없으면 조용히 숨긴다(억지로 인접 권역 수치를 끼워 보여주지 않는다).
+
+    regions는 compute_regions(d)가 이미 계산해둔 것 — build()가 area/*.html과 공유하려고
+    한 번만 계산해 넘긴다.
+    """
+    national_total = len(regions)
+    ei_total = len(d.entry_index)
+    ei_avg = round(statistics.mean(e["index"] for e in d.entry_index)) if d.entry_index else 0
 
     # 시군구 지도는 시도당 최대 240KB(전남광주통합, 섬 많은 해안선 탓)라 estimate.html에
     # 그대로 박아 넣으면 페이지 전체가 그만큼 무거워진다 — 시도별 SVG 파일로 따로 써 두고
@@ -1961,7 +2075,183 @@ guEl.addEventListener('change', () => {{
 </script>"""
     return page("지역별 시장 지표", "estimate", 0, body,
                 "지역 선택 시 외도민업 등록 밀도·증감률과 야놀자리서치 평균 객단가·점유율·객실당매출 지표를 보여줍니다.",
-                path="estimate.html")
+                path="estimate.html",
+                jsonld=dataset_ld(
+                    "지역별 공유숙박 시장 지표 — 전국 시군구",
+                    "전국 시군구별 외국인관광도시민박업 등록 밀도·증감률과 "
+                    "권역별 평균 객단가·객실점유율·객실당매출(RevPAR). "
+                    f"{DATA_PROVENANCE}, 야놀자리서치 교차검증.",
+                    "estimate.html", d.current.ym))
+
+
+# ─────────────────────────────────────────────────────── 지역별 정적 페이지 (pSEO)
+
+DISTRICT_PAGE_MIN_ACTIVE = 20
+# estimate.html은 URL이 하나뿐이라(드롭다운으로 클라이언트에서 데이터만 바꿔치기) 검색
+# 엔진이 "마포구 공유숙박"류 지역 검색어로 이 사이트의 어떤 페이지도 색인할 수 없다 —
+# 지역마다 별도 정적 URL(area/*.html)을 내야 색인·순위가 가능하다. 다만 2026년 3월
+# 구글 코어 업데이트로 "scaled content abuse"(템플릿만 다르고 값이 없는 대량 페이지)가
+# 명시적 위반이 됐다 — 그래서 표본이 너무 작아 지표(성장률·진입지수 등)가 사실상
+# 의미 없는 지역은 아예 페이지를 안 만든다(전국 250여개 중 20곳 이상만, 대략 40~60개).
+# entry_index()의 min_active 기본값과 같은 기준을 그대로 쓴다.
+
+
+def district_slug(sido: str, sigungu: str) -> str:
+    return f"{sido}-{sigungu}"
+
+
+def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
+                          national_total: int, ei_total: int, ei_avg: int) -> str:
+    """
+    시군구 하나짜리 정적 페이지. 데이터는 전부 compute_regions()가 이미 계산해둔 r
+    하나에서 나온다 — estimate.html의 인터랙티브 조회 결과와 같은 숫자를, 지역마다
+    별도 URL로 서버에서 완성된 HTML로 내보낸다(클라이언트 JS 없이도 전체 내용이 이미
+    응답에 들어있다 — 크롤러가 JS를 안 돌려도 색인할 수 있게).
+    """
+    sido, sigungu = r["sido"], r["sigungu"]
+    slug = district_slug(sido, sigungu)
+
+    growth_txt = ("신규 진입 지역이라 증감률을 계산할 수 없습니다" if r["growth_pct"] is None
+                  else f"직전 6개월 대비 {'+' if r['growth_pct'] >= 0 else ''}{r['growth_pct']}%"
+                       f"{'증가' if r['growth_pct'] >= 0 else '감소'}")
+    intro = (f"{sido} {sigungu}에는 외국인관광 도시민박업이 {r['active']:,}곳 영업 중입니다. "
+             f"전국 {national_total:,}곳 중 {r['national_rank']}위, {sido} 내에서는 "
+             f"{r['sido_total']}곳 중 {r['sido_rank']}위입니다. {growth_txt}.")
+
+    growth_badge = ("신규" if r["growth_pct"] is None
+                     else (f"▲+{r['growth_pct']}%" if r["growth_pct"] >= 0 else f"▼{abs(r['growth_pct'])}%"))
+    verdict_card = f"""
+<div class="verdictCard" data-tone="{r['verdict_tone']}">
+  <div class="vcTop">
+    <div class="vcRegion">{sido} {sigungu}</div>
+    <div class="vcRank">전국 {r['national_rank']}위({national_total:,}곳 중) · {sido} 내 {r['sido_rank']}위({r['sido_total']}곳 중)</div>
+  </div>
+  <div class="vcVerdict"><span class="vcBadge">{r['verdict_label']}</span>{r['verdict']}</div>
+  <div class="vcStats">
+    <div><div class="vsV">{r['active']:,}곳</div><div class="vsL">영업중 호스트</div></div>
+    <div><div class="vsV">{r['tier']}</div><div class="vsL">시장 규모</div></div>
+    <div><div class="vsV">{r['recent6']:,}건</div><div class="vsL">최근 6개월 신규</div></div>
+    <div><div class="vsV {'up' if r['growth_pct'] is not None and r['growth_pct'] >= 0 else 'down' if r['growth_pct'] is not None else ''}">{growth_badge}</div>
+    <div class="vsL">직전 6개월 대비</div></div>
+  </div>
+</div>"""
+
+    if r["entry"]:
+        e = r["entry"]
+        axes = [("성장", e["pct_growth"]), ("생존", e["pct_survival"]), ("적합도", e["pct_fit"])]
+        if "pct_demand" in e:
+            axes.append(("수요", e["pct_demand"]))
+        axes_html = "".join(
+            f'<div class="eiRow"><span class="eiL">{label}</span>'
+            f'<div class="eiBarWrap"><div class="eiBar" style="width:{v}%"></div></div>'
+            f'<span class="eiN">{v}</span></div>' for label, v in axes)
+        diff = e["index"] - ei_avg
+        compare_txt = (f"지수 산정 가능 지역 평균({ei_avg}점)과 같습니다." if diff == 0 else
+                       f"지수 산정 가능 지역 평균({ei_avg}점)보다 {abs(diff)}점 {'높습니다' if diff > 0 else '낮습니다'}.")
+        ei_html = f"""
+<h2 style="margin-top:36px;padding-top:18px">진입 적합도 지수</h2>
+<div class="sub" style="margin:-4px 0 6px">등록 데이터(성장·생존·적합도)와 방문자수(수요)를 결합한
+자체 지수, 백분위 평균입니다. 규모(호스트 수)는 의도적으로 제외했습니다.</div>
+<div class="eiScore"><span class="eiScoreV">{e['index']}</span><span class="eiScoreMax">/100</span>
+<span class="eiScoreRank">상위 {e['ei_rank']}위 (지수 산정 가능 {ei_total:,}곳 중)</span></div>
+<div class="eiGauge"><div class="eiGaugeAvg" style="left:{ei_avg}%"></div>
+<div class="eiGaugeMark" style="left:{e['index']}%"></div></div>
+<div class="eiGaugeLabels"><span>포화·위축</span><span>성장 기회</span></div>
+<div class="eiGaugeCompare">{compare_txt}</div>
+<div class="eiAxes">{axes_html}</div>"""
+    else:
+        ei_html = """
+<h2 style="margin-top:36px;padding-top:18px">진입 적합도 지수</h2>
+<div class="sub">영업중 호스트가 너무 적거나 최근 6개월 신규등록이 없어(비교 불가) 이 지역은
+지수를 계산할 수 없습니다.</div>"""
+
+    status_total = r["active"] + r["pause"] + r["closed"]
+    segs = [("active", "영업중", r["active"]), ("pause", "휴업", r["pause"]), ("closed", "폐업", r["closed"])]
+    status_bar = "".join(
+        f'<div class="seg {cls}" style="width:{(n / status_total * 100) if status_total else 0}%"></div>'
+        for cls, _, n in segs)
+    status_legend = "".join(
+        f'<span><span class="dot {cls}"></span>{label} {n:,}곳 '
+        f'({round(n / status_total * 100) if status_total else 0}%)</span>'
+        for cls, label, n in segs)
+
+    recent_yms = set(r["recent6_yms"])
+    max_monthly = max((m["n"] for m in r["monthly"]), default=0) or 1
+    trend_spark = "".join(
+        f'<div class="tcol {"trecent" if m["ym"] in recent_yms else ""}">'
+        f'<div class="tval">{m["n"]}</div>'
+        f'<div class="tbarwrap" title="{m["ym"]}: {m["n"]}건">'
+        f'<div class="tbar {"trecentbar" if m["ym"] in recent_yms else ""}" '
+        f'style="height:{m["n"] / max_monthly * 100:.0f}%"></div></div>'
+        f'<div class="tlabel">{m["ym"][2:] if i % 3 == 0 else ""}</div></div>'
+        for i, m in enumerate(r["monthly"]))
+
+    perf = d.perf.get(r["ynj_region"]) if r["ynj_region"] else None
+    perf_html = ""
+    if perf:
+        perf_html = f"""
+<h2 style="margin-top:36px;padding-top:18px">공유숙박 실적 지표 <span class="sub">({r['ynj_region']} 권역)</span></h2>
+<div class="h2sub">출처: 야놀자리서치 국내 숙박업 실적 지표({perf['ym'][:4]}-{perf['ym'][4:]} 기준). 시군구가 아닌
+{r['ynj_region']} 권역 평균값입니다.</div>
+<div class="kpis">
+  <div class="kpi"><div class="l">평균 객단가</div><div class="v">{perf['adr']:,.0f}원</div></div>
+  <div class="kpi"><div class="l">객실 점유율</div><div class="v">{perf['occ']:.1f}%</div></div>
+  <div class="kpi"><div class="l">객실당매출</div><div class="v">{perf['revpar']:,.0f}원</div></div>
+</div>"""
+
+    # 인접 지역 링크 — 같은 시도 안에서 순위 바로 위/아래. 방문자의 다음 클릭이자,
+    # area/ 페이지끼리 서로를 가리켜 사이트맵 없이도 크롤러가 페이지를 발견·연결할
+    # 통로가 된다(사이트맵은 존재를 알리고, 페이지 간 링크는 권위를 흘려보낸다).
+    idx = r["sido_rank"] - 1
+    neighbors = [g for g in (sido_group[idx - 1] if idx > 0 else None,
+                              sido_group[idx + 1] if idx + 1 < len(sido_group) else None)
+                 if g and g["active"] >= DISTRICT_PAGE_MIN_ACTIVE]
+    neighbor_links = "".join(
+        f'<div><a href="{district_slug(n["sido"], n["sigungu"])}.html">{n["sigungu"]}</a> '
+        f'({n["active"]:,}곳)</div>' for n in neighbors)
+
+    body = f"""
+<div class="kicker">HOST MARKET LOOKUP</div>
+<div class="sub"><a href="../estimate.html">지역별 시장 지표</a> · {sido}</div>
+<h1>{sido} {sigungu} 공유숙박 시장 지표</h1>
+<div class="sub">{intro} {d.current.ym} 기준.</div>
+
+{verdict_card}
+{ei_html}
+
+<h2 style="margin-top:36px;padding-top:18px">영업 현황(등록 이력 전체 기준)</h2>
+<div class="statusbar">{status_bar}</div>
+<div class="statuslegend">{status_legend}</div>
+
+<h2 style="margin-top:36px;padding-top:18px">최근 12개월 신규등록 추이</h2>
+<div class="trendspark">{trend_spark}</div>
+{perf_html}
+
+<h2 style="margin-top:36px;padding-top:18px">관광진흥법 개정 동향</h2>
+<div class="sub">법 개정은 전국 공통이라 어느 지역이든 똑같이 적용됩니다 — {sido} {sigungu}만의
+규제가 아닙니다. <a href="../dashboard.html">대시보드에서 규제·정책 동향 전체 보기 →</a></div>
+
+<h2 style="margin-top:36px;padding-top:18px">{sido} 내 다른 지역</h2>
+<div class="sub">{neighbor_links or '같은 시도 내 비교 대상이 없습니다.'}</div>
+<div class="sub" style="margin-top:8px"><a href="../estimate.html">전국 시군구 전체 조회 →</a></div>
+
+<div class="ctaBanner">
+  <div class="t">{sido} {sigungu}에서 시작해보고 싶다면</div>
+  <div class="d">방금 확인한 등록 밀도·증감률을 바탕으로, 위홈에서 호스트로 등록해보세요.</div>
+  <a class="wehomeCta" href="{wehome_cta_url('district_page')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
+</div>
+
+<div class="note warn">등록 밀도·증감률은 행정안전부 등록 건수 기반이라 실제 숙박요금·점유율을
+반영한 예상 수익이 아닙니다.{' 평균 객단가·객실 점유율·객실당매출은 실제 실적 지표이지만 개별 매물이 아닌 권역 평균값입니다.' if perf else ''}</div>
+
+{FOOTER}"""
+
+    description = (f"{sido} {sigungu} 외국인관광도시민박업 영업중 {r['active']:,}곳, 전국 {r['national_rank']}위. "
+                    f"{d.current.ym} 기준 등록 밀도·증감률·진입 적합도 지수.")
+    return page(f"{sido} {sigungu} 공유숙박 시장 지표", "estimate", 1, body, description,
+                path=f"area/{slug}.html",
+                jsonld=dataset_ld(f"{sido} {sigungu} 공유숙박 등록 현황", description,
+                                   f"area/{slug}.html", d.current.ym))
 
 
 # ─────────────────────────────────────────────────────── 월간 리포트 상세
@@ -2034,7 +2324,7 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
 {FOOTER}"""
     return page(f"{iss.ym} 리포트", "reports", 1, body,
                 f"{iss.ym} 공유숙박 시장 리포트. 외도민업 영업중 {iss.flagship.active:,}곳.",
-                path=f"report/{iss.ym}.html")
+                path=f"report/{iss.ym}.html", jsonld=report_ld(iss))
 
 
 # ─────────────────────────────────────────────────────── 빌드
@@ -2044,13 +2334,16 @@ def build() -> None:
 
     SITE.mkdir(exist_ok=True)
     (SITE / "report").mkdir(exist_ok=True)
+    (SITE / "area").mkdir(exist_ok=True)
+
+    regions, by_sido_group = compute_regions(d)
 
     (SITE / "index.html").write_text(render_landing(d), encoding="utf-8")
     (SITE / "dashboard.html").write_text(render_dashboard(d), encoding="utf-8")
     (SITE / "reports.html").write_text(render_reports_index(d), encoding="utf-8")
     (SITE / "news.html").write_text(render_news(d), encoding="utf-8")
     (SITE / "competitors.html").write_text(render_competitors(d), encoding="utf-8")
-    (SITE / "estimate.html").write_text(render_estimate(d), encoding="utf-8")
+    (SITE / "estimate.html").write_text(render_estimate(d, regions), encoding="utf-8")
 
     for i, iss in enumerate(d.all_issues):
         prev = d.all_issues[i + 1] if i + 1 < len(d.all_issues) else None
@@ -2058,12 +2351,33 @@ def build() -> None:
             render_report_detail(iss, prev, d.inbound, d.perf, d.demand, d.visitors, d.entry_index),
             encoding="utf-8")
 
+    # 지역별 정적 페이지(pSEO) — 등록 20곳 이상인 시군구만. render_district_page의 상단
+    # 주석 참고: 표본이 너무 작은 지역까지 다 내면 2026년 구글 scaled content abuse
+    # 기준에 걸릴 얇은 페이지가 된다.
+    national_total = len(regions)
+    ei_total = len(d.entry_index)
+    ei_avg = round(statistics.mean(e["index"] for e in d.entry_index)) if d.entry_index else 0
+    district_pages: list[tuple[dict, str]] = []  # (region, "area/xxx.html") — sitemap·검색인덱스가 같이 씀
+    for r in regions:
+        if r["active"] < DISTRICT_PAGE_MIN_ACTIVE or not r["sigungu"]:
+            continue
+        slug = district_slug(r["sido"], r["sigungu"])
+        path = f"area/{slug}.html"
+        (SITE / "area" / f"{slug}.html").write_text(
+            render_district_page(r, d, by_sido_group[r["sido"]], national_total, ei_total, ei_avg),
+            encoding="utf-8")
+        district_pages.append((r, path))
+
     # sitemap.xml·robots.txt — SITE_BASE_URL 없으면(로컬 개발) 가짜 도메인으로 된
     # sitemap을 만들지 않고 조용히 생략한다(page()의 OG 태그 생략과 같은 이유).
+    write_og_image(d.current)
+
     if SITE_BASE_URL:
-        paths = ["", "dashboard.html", "reports.html", "news.html", "competitors.html", "estimate.html"]
-        paths += [f"report/{iss.ym}.html" for iss in d.all_issues]
-        urls = "".join(f"<url><loc>{SITE_BASE_URL}/{p}</loc></url>\n" for p in paths)
+        today = date.today().isoformat()
+        urls = "".join(f"<url><loc>{SITE_BASE_URL}/{p}</loc><lastmod>{mod}</lastmod></url>\n"
+                       for p, mod in sitemap_entries([i.ym for i in d.all_issues], d.current.ym))
+        urls += "".join(f"<url><loc>{SITE_BASE_URL}/{p}</loc><lastmod>{today}</lastmod></url>\n"
+                        for _, p in district_pages)
         (SITE / "sitemap.xml").write_text(
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n',
@@ -2083,6 +2397,10 @@ def build() -> None:
         {"type": "report", "title": f"{iss.ym} 리포트", "url": f"report/{iss.ym}.html",
          "source": "월간 리포트", "date": iss.ym}
         for iss in d.all_issues
+    ] + [
+        {"type": "district", "title": f"{r['sido']} {r['sigungu']}", "url": p,
+         "source": "지역별 시장 지표", "date": d.current.ym}
+        for r, p in district_pages
     ]
     (SITE / "search-index.json").write_text(json.dumps(search_index, ensure_ascii=False), encoding="utf-8")
 
@@ -2097,7 +2415,8 @@ def build() -> None:
     }, ensure_ascii=False, indent=1), encoding="utf-8")
 
     print(f"\n✅ {SITE}/ 생성 완료")
-    print(f"   index.html(랜딩), dashboard.html, reports.html, report/*.html ({len(d.all_issues)}개 호)")
+    print(f"   index.html(랜딩), dashboard.html, reports.html, report/*.html ({len(d.all_issues)}개 호), "
+          f"area/*.html ({len(district_pages)}개 시군구, 등록 {DISTRICT_PAGE_MIN_ACTIVE}곳 이상)")
     delta = mom_delta(d.current, d.previous)
     print(f"   최신: {d.current.ym} 영업중 {d.current.flagship.active:,} "
           f"({(format(delta, '+,') if delta is not None else '비교 대상 없음(첫 스냅샷)')} "
