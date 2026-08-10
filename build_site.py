@@ -1304,16 +1304,32 @@ def write_og_image(iss: Issue) -> None:
     이게 없으면 링크를 어디에 붙여도 썸네일이 안 뜬다. 로고 에셋이 없으므로 이번 호
     핵심 숫자를 그대로 표지로 쓴다(매달 빌드마다 자동 갱신).
 
-    두 번 갈아엎었다. 1차(진한 navy 배경 + 텍스트 5줄)는 "못생겼다"는 피드백을 받았고,
-    2차(글로우+배지 얹은 버전)는 "글씨체도 별로고 글자가 너무 많고 배경도 너무 어둡다"는
-    피드백을 받았다. 그래서 이번엔: (1) 폰트를 AppleGothic(구형 비트맵 느낌) 대신
-    Apple SD Gothic Neo로 — 사이트 본문 CSS의 폰트 스택에 이미 있는 폰트라 본문과
-    톤이 맞는다. (2) 배경을 사이트 라이트 테마 배경(#fff)으로. (3) 텍스트를 숫자 하나 +
-    캡션 한 줄 + 배지로 줄였다 — "공유숙박 시장, 숫자로 읽습니다" 헤드라인과 출처 각주는
-    뺐다(공유 썸네일은 3초 안에 훑고 지나가는 자리라, 카피가 많을수록 오히려 하나도
-    안 읽힌다).
+    세 번 갈아엎었다. 1차(진한 navy 배경 + 텍스트 5줄)는 "못생겼다", 2차(글로우+배지+
+    미니 차트)는 "글씨체도 별로고 글자가 너무 많고 배경도 너무 어둡다", 3차(흰 배경
+    +Apple SD Gothic Neo+하단 막대그래프)는 "글씨체가 너무 얇고 그림도 뜬금없다"는
+    피드백을 받았다. 이번에 고친 것:
+
+    (1) "얇다"의 원인은 폰트가 아니라 굵기였다 — matplotlib font_manager는
+    AppleSDGothicNeo.ttc(macOS 시스템 폰트, 굵기별로 총 9벌이 한 파일에 묶여 있다)에서
+    Regular 한 벌만 찾아 등록해두고, fontweight="bold"를 줘도 그 서체에 매칭되는 실제
+    Bold 페이스가 없어 조용히 Regular로 그렸다. fontTools로 ttc 안의 Bold 페이스를 직접
+    꺼내 그 파일로 그려야 진짜 굵게 나온다.
+    (2) 막대그래프는 본문 어디에도 없는 숫자(추이)를 이 카드에만 새로 얹은 장식이라
+    "뜬금없다"는 지적이 맞다 — 아예 뺐다. 배지 + 숫자 + 캡션 세 줄만 남긴다.
     """
+    import tempfile
+    from fontTools.ttLib import TTCollection
+    from matplotlib.font_manager import FontProperties
     from matplotlib.patches import FancyBboxPatch
+
+    # ttc 안에서 이름이 "Bold"인 페이스를 찾아 임시 ttf로 뽑는다 — 매 빌드 다시 뽑아도
+    # 수 ms 수준이라 캐싱할 이유가 없고, 이 파일 자체를 커밋/배포하지 않으니(og.png로
+    # 래스터화된 결과만 남는다) 폰트 재배포 라이선스 문제도 없다.
+    tc = TTCollection("/System/Library/Fonts/AppleSDGothicNeo.ttc")
+    bold_face = next(f for f in tc.fonts if f["name"].getDebugName(2) == "Bold")
+    with tempfile.NamedTemporaryFile(suffix=".ttf", delete=False) as tmp:
+        bold_face.save(tmp.name)
+        bold_font = FontProperties(fname=tmp.name)
 
     with viz.plt.rc_context({"font.family": "Apple SD Gothic Neo"}):
         fig = viz.plt.figure(figsize=(12, 6.3), dpi=100)
@@ -1321,29 +1337,15 @@ def write_og_image(iss: Issue) -> None:
 
         # 배지형 킥커 — 사이트 본문의 .kicker(민트 텍스트)보다 공유 미리보기에선 채워진
         # 배지가 작은 썸네일 크기로 압축돼도 눈에 더 잘 띈다.
-        fig.add_artist(FancyBboxPatch((0.07, 0.80), 0.145, 0.09,
+        fig.add_artist(FancyBboxPatch((0.07, 0.79), 0.155, 0.095,
                                        boxstyle="round,pad=0,rounding_size=0.045",
                                        facecolor=viz.MINT, edgecolor="none", transform=fig.transFigure))
-        fig.text(.1425, .845, "WEHOST", color="white", fontsize=15.5,
-                  fontweight="bold", ha="center", va="center")
+        fig.text(.1475, .8375, "WEHOST", color="white", fontsize=16, fontproperties=bold_font,
+                  ha="center", va="center")
 
-        fig.text(.07, .58, f"{iss.flagship.active:,}", color=viz.NAVY, fontsize=92,
-                  fontweight="bold")
-        fig.text(.072, .40, f"외도민업 영업중 · {iss.ym} 기준", color="#5b6472", fontsize=20)
-
-        # 오른쪽 하단 미니 스파크라인 — 실제 최근 12개월 신규등록 추이. 장식이 아니라
-        # 진짜 데이터다. 이번 달(진행 중이라 집계가 덜 찬 달)은 항상 막대가 짧게 나와
-        # 마치 방금 꺾인 것처럼 보인다 — 빼고 완결된 12개월만 쓴다(sido_growth 등 다른
-        # 트렌드 계산도 같은 이유로 이번 달을 제외한다).
-        current_ym = date.today().strftime("%Y-%m")
-        months = [(ym, c) for ym, c in iss.flagship.recent_months(13) if ym != current_ym][-12:]
-        if months:
-            ax = fig.add_axes([0.09, 0.13, 0.85, 0.16])
-            vals = [c for _, c in months]
-            colors = [viz.MINT if i == len(vals) - 1 else "#e6e9ee" for i in range(len(vals))]
-            ax.bar(range(len(vals)), vals, color=colors, width=0.62)
-            ax.set_facecolor("none")
-            ax.axis("off")
+        fig.text(.07, .43, f"{iss.flagship.active:,}", color=viz.NAVY, fontsize=94,
+                  fontproperties=bold_font, va="center")
+        fig.text(.072, .20, f"외도민업 영업중 · {iss.ym} 기준", color="#5b6472", fontsize=21)
 
         fig.savefig(SITE / "og.png", facecolor="white")
         viz.plt.close(fig)
