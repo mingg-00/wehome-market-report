@@ -1231,6 +1231,27 @@ def write_report_csv(iss: Issue) -> str:
     return path
 
 
+def write_reports_timeline_csv(all_issues: list[Issue]) -> str:
+    """
+    발행호 시계열 요약. write_report_csv는 호 하나의 스냅샷이라 "영업중 수가 달마다
+    어떻게 움직였는지"를 이어볼 파일이 따로 없다 — 여기서만 나온다. all_issues는
+    최신순(index 0이 이번 달)이라 시계열로 읽기 편하게 오래된 순으로 뒤집는다.
+    """
+    path = "data/reports-timeline.csv"
+    out = SITE / path
+    out.parent.mkdir(parents=True, exist_ok=True)
+    ordered = list(reversed(all_issues))
+    with out.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["발행월", "영업중", "전월대비증감", "폐업률(%)", "서울비중(%)", "서울영업중"])
+        for i, iss in enumerate(ordered):
+            delta = mom_delta(iss, ordered[i - 1] if i > 0 else None)
+            w.writerow([iss.ym, iss.flagship.active, "" if delta is None else delta,
+                        round(iss.flagship.closure_rate * 100, 1), round(iss.seoul_share * 100, 1),
+                        iss.seoul_active])
+    return path
+
+
 def download_bar(depth: int, csv: tuple[str, str, str] | None = None) -> str:
     """
     PDF 저장(항상) + CSV 내려받기(csv가 있을 때만) 버튼 바. csv는
@@ -1634,11 +1655,19 @@ def render_reports_index(d: SiteData) -> str:
         f'</div><div class="arrow">→</div></a>'
         for iss in d.all_issues
     )
+    timeline_path = write_reports_timeline_csv(d.all_issues)
+    # PDF 저장 버튼은 안 뒀다 — 이 페이지는 순전히 링크 목록이라 인쇄해도 저장할
+    # 내용이 없다(호별 상세는 이미 각자 자기 페이지에서 PDF로 저장할 수 있다).
+    dl_bar = f"""<div class="dlBar">
+<a class="dlBtn" href="{timeline_path}" download="공유숙박_발행호_시계열.csv">CSV 내려받기</a>
+<span class="dlNote">발행호 {len(d.all_issues)}개의 영업중·전월대비증감·폐업률·서울비중 시계열입니다.</span>
+</div>"""
     body = f"""
 <div class="kicker">MONTHLY REPORTS</div>
 <h1>월간 리포트 아카이브</h1>
 <div class="sub">매월 발행. 지난 호는 계속 보관됩니다.</div>
 {search_box_html()}
+{dl_bar}
 <div class="archive" style="margin-top:24px">{cards}</div>
 {FOOTER}"""
     return page("월간 리포트", "reports", 0, body, "공유숙박 시장 월간 리포트 발행 이력.", path="reports.html")

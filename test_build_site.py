@@ -134,6 +134,32 @@ def test_report_csv_has_three_sections_and_top10_rows():
     assert any(row[:2] == ["1", "마포구"] for row in rows if row and row[0].isdigit())
 
 
+def test_reports_timeline_csv_orders_oldest_first_and_blanks_first_delta():
+    """all_issues는 최신순으로 들어오는데 시계열은 오래된 순이어야 읽기 편하다."""
+    import csv
+    import tempfile
+    from pathlib import Path
+    def make_issue(ym, active):
+        flagship = bs.localdata.CategoryStats(
+            slug=bs.localdata.FLAGSHIP, name_ko="외국인관광도시민박업",
+            active=active, closed=1, pause=0, total=active + 1,
+            by_sigungu={"서울특별시 마포구": active})
+        return bs.Issue(ym, {bs.localdata.FLAGSHIP: flagship})
+    all_issues = [make_issue("2026-08", 110), make_issue("2026-07", 100)]  # 최신순 입력
+
+    original = bs.SITE
+    with tempfile.TemporaryDirectory() as tmp:
+        bs.SITE = Path(tmp)
+        try:
+            raw = (bs.SITE / bs.write_reports_timeline_csv(all_issues)).read_bytes()
+        finally:
+            bs.SITE = original
+
+    rows = list(csv.reader(raw.decode("utf-8-sig").splitlines()))
+    assert rows[1][:2] == ["2026-07", "100"] and rows[1][2] == ""  # 첫 호는 비교 대상 없음
+    assert rows[2][:2] == ["2026-08", "110"] and rows[2][2] == "10"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
