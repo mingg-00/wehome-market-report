@@ -764,7 +764,13 @@ nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,
 .wrap{max-width:var(--maxw);margin:0 auto;padding:36px 20px 80px}
 .kicker{color:var(--mint);font-weight:800;letter-spacing:.14em;font-size:11.5px;text-transform:uppercase}
 h1{font-size:32px;line-height:1.22;margin:.35em 0 .15em;letter-spacing:-.02em}
-.pageHead{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.pageHead{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+/* margin-left:auto — justify-content:space-between이었다면 제목이 길어 줄바꿈될 때
+   버튼(들)이 자기 혼자 줄로 밀려나면서 왼쪽 끝에 붙는다(space-between은 그 줄에 아이템이
+   하나뿐이면 flex-start와 같아진다, 실측 확인). auto 마진은 줄바꿈 여부와 무관하게 항상
+   남는 공간을 왼쪽으로 밀어 오른쪽 끝에 고정한다. */
+.pageHead > *:last-child{margin-left:auto}
+.pageHeadActions{display:flex;gap:10px;flex-wrap:wrap}
 h2{font-size:19px;margin:46px 0 6px;padding-top:22px;border-top:1px solid var(--line)}
 .h2sub{color:var(--muted);font-size:13.5px;margin-bottom:16px}
 .sub{color:var(--muted);font-size:14px}
@@ -1017,9 +1023,6 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  color:var(--fg);font-size:13.5px;line-height:1.4}
 .searchResultItem:hover{background:var(--bg)}
 .searchResultItem .srType{display:block;font-size:10.5px;color:var(--mint);font-weight:700;margin-bottom:2px}
-/* 판정 카드 바로 아래에 붙는 툴바 — 위 여백을 좁게 둬서 별도 섹션이 아니라
-   "방금 본 결과에 딸린 동작"으로 읽히게 한다 */
-.dlBar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 4px}
 .dlBtn{display:inline-block;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
  background:var(--card);color:var(--fg);font:inherit;font-size:13px;font-weight:700;
  text-decoration:none;cursor:pointer}
@@ -1034,7 +1037,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
     전부 빈 칸으로 나온다(이 페이지에선 그게 데이터 자체다) */
  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
  /* 조회 UI·홍보·다운로드 버튼은 종이에서 누를 수 없다 */
- nav,.dlBar,.searchBox,.subscribe,.ctaBanner,.lookup,#lkRankBox,.pageHead .dlBtn{display:none}
+ nav,.searchBox,.subscribe,.ctaBanner,.lookup,#lkRankBox,.pageHead .dlBtn{display:none}
  /* 대시보드·리포트의 .reveal 요소는 스크롤로 화면에 들어와야 opacity:1이 된다(IntersectionObserver) —
     끝까지 안 스크롤한 채 인쇄하면 못 본 차트가 전부 빈 칸으로 찍힌다 */
  .reveal{opacity:1!important;transform:none!important}
@@ -1253,13 +1256,18 @@ def write_reports_timeline_csv(all_issues: list[Issue]) -> str:
     return path
 
 
-def download_bar(depth: int, csv: tuple[str, str, str] | None = None) -> str:
+def download_buttons(depth: int, csv: tuple[str, str] | None = None, pdf: bool = True) -> str:
     """
-    PDF 저장(항상) + CSV 내려받기(csv가 있을 때만) 버튼 바. csv는
-    (경로, 다운로드 파일명, 안내 문구) — 페이지마다 CSV에 담기는 데이터가 달라서
-    (지역별 지표 vs 리포트 호별 요약) 호출부가 정한다. 대시보드처럼 표가 시군구
-    CSV의 부분집합뿐인 페이지는 csv=None으로 PDF만 낸다(같은 숫자를 두 번 내려받게
-    하지 않으려고).
+    h1과 나란히 pageHead 안에 두는 CSV/PDF 버튼. csv는 (경로, 다운로드 파일명) —
+    페이지마다 CSV에 담기는 데이터가 달라서(지역별 지표 vs 리포트 호별 요약) 호출부가
+    정한다. 대시보드처럼 표가 시군구 CSV의 부분집합뿐인 페이지는 csv=None으로 PDF만
+    낸다(같은 숫자를 두 번 내려받게 하지 않으려고). reports.html처럼 링크 목록뿐이라
+    인쇄할 내용이 없는 페이지는 pdf=False로 CSV만 낸다.
+
+    안내 문구를 안 붙이는 이유: 버튼 이름 자체가 이미 설명이고("CSV 내려받기"),
+    "무엇이 담기는지"는 다운로드된 파일명·페이지 제목으로 충분히 유추된다 — 매
+    페이지 CSV 범위가 달라 안내를 정확히 쓰려면 문구가 다시 길어지고, 결국 처음
+    지적받은 "버튼 옆에 버튼 설명을 또 쓴다"는 문제로 돌아간다.
 
     PDF를 파일로 미리 굽지 않고 브라우저 인쇄(@media print)에 넘긴다 — 페이지마다
     서버에서 PDF를 새로 렌더링하려면 PDF 엔진과 한글 폰트 임베딩이 새로 붙는데,
@@ -1267,18 +1275,11 @@ def download_bar(depth: int, csv: tuple[str, str, str] | None = None) -> str:
     "PDF로 저장"은 모든 OS에 이미 있다.
     """
     p = "../" * depth
-    if csv:
-        csv_path, csv_filename, csv_note = csv
-        csv_html = f'<a class="dlBtn" href="{p}{csv_path}" download="{csv_filename}">CSV 내려받기</a>'
-        note = f"{csv_note} PDF는 지금 보고 있는 화면입니다."
-    else:
-        csv_html = ""
-        note = "PDF는 지금 보고 있는 화면입니다."
-    return f"""<div class="dlBar">
-{csv_html}
-<button class="dlBtn" type="button" onclick="window.print()">PDF로 저장</button>
-<span class="dlNote">{note}</span>
-</div>"""
+    csv_html = f'<a class="dlBtn" href="{p}{csv[0]}" download="{csv[1]}">CSV 내려받기</a>' if csv else ""
+    pdf_html = '<button class="dlBtn" type="button" onclick="window.print()">PDF로 저장</button>' if pdf else ""
+    # 묶지 않고 h1과 나란히 flex 아이템으로 두면, 제목이 길어 줄바꿈될 때 CSV/PDF가
+    # 각자 다른 끝으로 흩어진다(실측 확인) — 항상 한 덩어리로 오른쪽에 붙게 감싼다.
+    return f'<div class="pageHeadActions">{csv_html}{pdf_html}</div>'
 
 
 def write_og_image(iss: Issue) -> None:
@@ -1659,18 +1660,14 @@ def render_reports_index(d: SiteData) -> str:
         for iss in d.all_issues
     )
     timeline_path = write_reports_timeline_csv(d.all_issues)
-    # PDF 저장 버튼은 안 뒀다 — 이 페이지는 순전히 링크 목록이라 인쇄해도 저장할
-    # 내용이 없다(호별 상세는 이미 각자 자기 페이지에서 PDF로 저장할 수 있다).
-    dl_bar = f"""<div class="dlBar">
-<a class="dlBtn" href="{timeline_path}" download="공유숙박_발행호_시계열.csv">CSV 내려받기</a>
-<span class="dlNote">발행호 {len(d.all_issues)}개의 영업중·전월대비증감·폐업률·서울비중 시계열입니다.</span>
-</div>"""
     body = f"""
 <div class="kicker">MONTHLY REPORTS</div>
-<h1>월간 리포트 아카이브</h1>
+<div class="pageHead">
+  <h1>월간 리포트 아카이브</h1>
+  {download_buttons(0, (timeline_path, "공유숙박_발행호_시계열.csv"), pdf=False)}
+</div>
 <div class="sub">매월 발행. 지난 호는 계속 보관됩니다.</div>
 {search_box_html()}
-{dl_bar}
 <div class="archive" style="margin-top:24px">{cards}</div>
 {FOOTER}"""
     return page("월간 리포트", "reports", 0, body, "공유숙박 시장 월간 리포트 발행 이력.", path="reports.html")
@@ -2369,10 +2366,11 @@ def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
     body = f"""
 <div class="kicker">HOST MARKET LOOKUP</div>
 <div class="sub"><a href="../estimate.html">지역별 시장 지표</a> · {sido}</div>
-<h1>{sido} {sigungu} 공유숙박 시장 지표</h1>
+<div class="pageHead">
+  <h1>{sido} {sigungu} 공유숙박 시장 지표</h1>
+  {download_buttons(1, (csv_path, f"공유숙박_지역별지표_{d.current.ym}.csv"))}
+</div>
 <div class="sub">{intro} {d.current.ym} 기준.</div>
-{download_bar(1, (csv_path, f"공유숙박_지역별지표_{d.current.ym}.csv",
-                   f"CSV는 전국 시군구 전체({d.current.ym} 기준),"))}
 
 {verdict_card}
 {ei_html}
@@ -2444,7 +2442,10 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
 
     body = f"""
 <div class="kicker">{iss.ym}</div>
-<h1>공유숙박 마켓리포트 {iss.ym}</h1>
+<div class="pageHead">
+  <h1>공유숙박 마켓리포트 {iss.ym}</h1>
+  {download_buttons(1, (csv_path, f"공유숙박_마켓리포트_{iss.ym}.csv"))}
+</div>
 <div class="sub">행안부 원본 데이터 직접 수집·집계</div>
 
 <div class="kpis">
@@ -2453,7 +2454,6 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
   <div class="kpi"><div class="l">폐업률</div><div class="v">{iss.flagship.closure_rate:.1%}</div></div>
   <div class="kpi"><div class="l">서울 비중</div><div class="v">{iss.seoul_share:.0%}</div></div>
 </div>
-{download_bar(1, (csv_path, f"공유숙박_마켓리포트_{iss.ym}.csv", f"CSV는 이 호({iss.ym}) 카테고리·TOP10 요약,"))}
 
 <h2>전국 시도별 TOP 10</h2>
 <div class="scroll"><table><tr><th>#</th><th>시도</th><th style="text-align:right">영업중</th></tr>{sido_rows}</table></div>
