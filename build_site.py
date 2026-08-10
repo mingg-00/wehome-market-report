@@ -1023,6 +1023,8 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  background:var(--card);color:var(--fg);font:inherit;font-size:13px;font-weight:700;
  text-decoration:none;cursor:pointer}
 .dlBtn:hover{border-color:var(--mint)}
+.dlBtn:disabled{opacity:.4;cursor:not-allowed}
+.dlBtn:disabled:hover{border-color:var(--line)}
 .dlNote{font-size:12px;color:var(--muted)}
 @media print{
  /* OS가 다크모드면 인쇄물 배경이 통째로 검게 깔린다 — 인쇄는 항상 밝은 팔레트로 고정 */
@@ -1825,7 +1827,10 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
 <div class="lookup">
   <select id="lkSido"><option value="">시도 선택</option>{sido_options}</select>
   <select id="lkGu" disabled><option value="">시군구 선택</option></select>
+  <a class="dlBtn" href="{csv_path}" download="공유숙박_지역별지표_{d.current.ym}.csv">CSV 내려받기</a>
+  <button class="dlBtn" id="lkPdfBtn" type="button" onclick="window.print()" disabled>PDF로 저장</button>
 </div>
+<div class="sub dlNote">CSV는 전국 시군구 전체({d.current.ym} 기준) · PDF는 지역을 선택하면 지금 화면 그대로 저장됩니다.</div>
 
 <div id="lkResult" class="lkResult" style="display:none">
   <div class="verdictCard" id="lkVerdictCard">
@@ -1841,7 +1846,6 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
       <div><div class="vsV" id="lkGrowth">-</div><div class="vsL">직전 6개월 대비</div></div>
     </div>
   </div>
-  {download_bar(csv_path, d.current.ym, 0)}
 
   <h2 style="margin-top:26px">진입 적합도 지수</h2>
   <div class="sub" style="margin:-4px 0 6px">등록 데이터(성장·생존·적합도)와 방문자수(수요)를 결합한
@@ -1929,6 +1933,7 @@ const sidoEl = document.getElementById('lkSido');
 const guEl = document.getElementById('lkGu');
 const result = document.getElementById('lkResult');
 const cta = document.getElementById('lkCta');
+const pdfBtn = document.getElementById('lkPdfBtn');
 const empty = document.getElementById('lkEmpty');
 const perfBox = document.getElementById('lkPerf');
 const perfEmpty = document.getElementById('lkPerfEmpty');
@@ -1986,7 +1991,7 @@ mapWrap.addEventListener('keydown', e => {{
 
 sidoEl.addEventListener('change', () => {{
   guEl.innerHTML = '<option value="">시군구 선택</option>';
-  result.style.display = 'none'; cta.style.display = 'none'; empty.style.display = 'none';
+  result.style.display = 'none'; cta.style.display = 'none'; empty.style.display = 'none'; pdfBtn.disabled = true;
   rankBox.style.display = 'none'; rankList.innerHTML = '';
   mapWrap.style.display = 'none'; mapWrap.innerHTML = '';
   if (!sidoEl.value) {{ guEl.disabled = true; return; }}
@@ -2049,7 +2054,7 @@ guEl.addEventListener('change', () => {{
     const pin = mapWrap.querySelector('#lkPin');
     if (pin) pin.style.display = 'none';
   }}
-  if (!r) {{ result.style.display = 'none'; cta.style.display = 'none';
+  if (!r) {{ result.style.display = 'none'; cta.style.display = 'none'; pdfBtn.disabled = true;
              empty.style.display = guEl.value ? 'block' : 'none'; return; }}
   document.getElementById('lkVerdictCard').dataset.tone = r.verdict_tone;
   document.getElementById('lkRegionName').textContent = `${{r.sido}} ${{r.sigungu}}`;
@@ -2142,7 +2147,7 @@ guEl.addEventListener('change', () => {{
     perfBox.style.display = 'none'; perfEmpty.style.display = 'block';
   }}
 
-  result.style.display = 'block'; cta.style.display = 'block'; empty.style.display = 'none';
+  result.style.display = 'block'; cta.style.display = 'block'; empty.style.display = 'none'; pdfBtn.disabled = false;
 }});
 </script>"""
     return page("지역별 시장 지표", "estimate", 0, body,
@@ -2287,9 +2292,9 @@ def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
 <div class="sub"><a href="../estimate.html">지역별 시장 지표</a> · {sido}</div>
 <h1>{sido} {sigungu} 공유숙박 시장 지표</h1>
 <div class="sub">{intro} {d.current.ym} 기준.</div>
+{download_bar(csv_path, d.current.ym, 1)}
 
 {verdict_card}
-{download_bar(csv_path, d.current.ym, 1)}
 {ei_html}
 
 <h2 style="margin-top:36px;padding-top:18px">영업 현황(등록 이력 전체 기준)</h2>
