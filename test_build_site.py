@@ -105,6 +105,35 @@ def test_regions_csv_is_excel_safe_and_blanks_unavailable_values():
     assert rows[2][6] == "" and rows[2][12:] == ["", ""]
 
 
+def test_report_csv_has_three_sections_and_top10_rows():
+    """카테고리별 현황·전국 TOP10·서울 TOP10 세 표가 빈 줄로 이어붙은 구조가 안 깨지는지."""
+    import csv
+    import tempfile
+    from pathlib import Path
+    flagship = bs.localdata.CategoryStats(
+        slug=bs.localdata.FLAGSHIP, name_ko="외국인관광도시민박업",
+        active=10, closed=2, pause=0, total=12,
+        by_sigungu={"서울특별시 마포구": 6, "서울특별시 용산구": 4, "부산광역시 해운대구": 3})
+    iss = bs.Issue("2026-08", {bs.localdata.FLAGSHIP: flagship})
+
+    original = bs.SITE
+    with tempfile.TemporaryDirectory() as tmp:
+        bs.SITE = Path(tmp)
+        try:
+            raw = (bs.SITE / bs.write_report_csv(iss)).read_bytes()
+        finally:
+            bs.SITE = original
+
+    rows = list(csv.reader(raw.decode("utf-8-sig").splitlines()))
+    assert rows[0] == ["카테고리별 현황"]
+    assert rows[1] == ["카테고리", "영업중", "폐업", "누적"]
+    assert rows[2] == ["외국인관광도시민박업", "10", "2", "12"]
+    assert rows[3] == []  # 다음 표와의 구분선
+    assert rows[4] == ["전국 시도 TOP10"]
+    assert rows[6][:2] == ["1", "서울특별시"]  # 마포구+용산구 합쳐 부산보다 커야 1위
+    assert any(row[:2] == ["1", "마포구"] for row in rows if row and row[0].isdigit())
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

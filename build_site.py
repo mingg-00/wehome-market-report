@@ -1034,6 +1034,9 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
  /* 조회 UI·홍보·다운로드 버튼은 종이에서 누를 수 없다 */
  nav,.dlBar,.searchBox,.subscribe,.ctaBanner,.lookup,#lkRankBox{display:none}
+ /* 대시보드·리포트의 .reveal 요소는 스크롤로 화면에 들어와야 opacity:1이 된다(IntersectionObserver) —
+    끝까지 안 스크롤한 채 인쇄하면 못 본 차트가 전부 빈 칸으로 찍힌다 */
+ .reveal{opacity:1!important;transform:none!important}
  body{background:#fff}
  .wrap{max-width:none;padding:0 4mm}
  h1{font-size:26px}
@@ -1196,20 +1199,63 @@ def write_regions_csv(regions: list[dict], ym: str) -> str:
     return path
 
 
-def download_bar(csv_path: str, ym: str, depth: int) -> str:
+def write_report_csv(iss: Issue) -> str:
     """
-    CSV 내려받기 + PDF 저장 버튼.
+    월간 리포트 한 호의 카테고리별 현황·전국 시도 TOP10·서울 자치구 TOP10 —
+    write_regions_csv와 달리 시군구 단위가 아니라 그 달의 스냅샷 요약이라
+    지역별 CSV에 없는 정보다. 표 세 개를 한 시트에 구분선(빈 줄)으로 이어 붙인다 —
+    표마다 컬럼 구조가 달라 한 표로 합칠 수 없고, 파일 세 개로 쪼개기엔
+    호스트가 매달 참고할 표로는 너무 작다(5행, 10행, 10행).
+    """
+    path = f"data/report-{iss.ym}.csv"
+    out = SITE / path
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["카테고리별 현황"])
+        w.writerow(["카테고리", "영업중", "폐업", "누적"])
+        for k in CATEGORY_ORDER:
+            if k in iss.categories:
+                c = iss.categories[k]
+                w.writerow([c.name_ko, c.active, c.closed, c.total])
+        w.writerow([])
+        w.writerow(["전국 시도 TOP10"])
+        w.writerow(["순위", "시도", "영업중"])
+        for i, (sido, cnt) in enumerate(iss.flagship.sido_rank(10), 1):
+            w.writerow([i, sido, cnt])
+        w.writerow([])
+        w.writerow(["서울 자치구 TOP10"])
+        w.writerow(["순위", "구", "영업중"])
+        for i, (gu, cnt) in enumerate(iss.flagship.district_rank(SEOUL, 10), 1):
+            w.writerow([i, gu, cnt])
+    return path
 
-    PDF를 파일로 미리 굽지 않고 브라우저 인쇄(@media print)에 넘긴다 — 지역 68개 ×
-    매달치를 서버에서 렌더링하려면 PDF 엔진과 한글 폰트 임베딩이 새로 붙는데,
+
+def download_bar(depth: int, csv: tuple[str, str, str] | None = None) -> str:
+    """
+    PDF 저장(항상) + CSV 내려받기(csv가 있을 때만) 버튼 바. csv는
+    (경로, 다운로드 파일명, 안내 문구) — 페이지마다 CSV에 담기는 데이터가 달라서
+    (지역별 지표 vs 리포트 호별 요약) 호출부가 정한다. 대시보드처럼 표가 시군구
+    CSV의 부분집합뿐인 페이지는 csv=None으로 PDF만 낸다(같은 숫자를 두 번 내려받게
+    하지 않으려고).
+
+    PDF를 파일로 미리 굽지 않고 브라우저 인쇄(@media print)에 넘긴다 — 페이지마다
+    서버에서 PDF를 새로 렌더링하려면 PDF 엔진과 한글 폰트 임베딩이 새로 붙는데,
     결과물은 사용자가 보고 있는 화면을 그대로 저장하는 것과 같다. 인쇄 대화상자의
     "PDF로 저장"은 모든 OS에 이미 있다.
     """
     p = "../" * depth
+    if csv:
+        csv_path, csv_filename, csv_note = csv
+        csv_html = f'<a class="dlBtn" href="{p}{csv_path}" download="{csv_filename}">CSV 내려받기</a>'
+        note = f"{csv_note} PDF는 지금 보고 있는 화면입니다."
+    else:
+        csv_html = ""
+        note = "PDF는 지금 보고 있는 화면입니다."
     return f"""<div class="dlBar">
-<a class="dlBtn" href="{p}{csv_path}" download="공유숙박_지역별지표_{ym}.csv">CSV 내려받기</a>
+{csv_html}
 <button class="dlBtn" type="button" onclick="window.print()">PDF로 저장</button>
-<span class="dlNote">CSV는 전국 시군구 전체({ym} 기준), PDF는 지금 보고 있는 화면입니다.</span>
+<span class="dlNote">{note}</span>
 </div>"""
 
 
@@ -1428,6 +1474,7 @@ def render_dashboard(d: SiteData) -> str:
   <div class="kpi reveal"><div class="l">상위 3개구 집중도</div><div class="v" data-count>{c.concentration(3):.0%}</div>
     <div class="d">{top3_txt}</div></div>
 </div>
+{download_bar(0)}
 
 <h2>등록 추이</h2>
 <div class="h2sub">최근 24개월 월별 신규등록(인허가일자 기준, 현재 상태 무관). 최신월 강조.</div>
@@ -2292,7 +2339,8 @@ def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
 <div class="sub"><a href="../estimate.html">지역별 시장 지표</a> · {sido}</div>
 <h1>{sido} {sigungu} 공유숙박 시장 지표</h1>
 <div class="sub">{intro} {d.current.ym} 기준.</div>
-{download_bar(csv_path, d.current.ym, 1)}
+{download_bar(1, (csv_path, f"공유숙박_지역별지표_{d.current.ym}.csv",
+                   f"CSV는 전국 시군구 전체({d.current.ym} 기준),"))}
 
 {verdict_card}
 {ei_html}
@@ -2335,7 +2383,7 @@ def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
 # ─────────────────────────────────────────────────────── 월간 리포트 상세
 
 def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: dict[str, dict],
-                          demand: dict[str, dict], visitors: dict, entry_idx: list[dict]) -> str:
+                          demand: dict[str, dict], visitors: dict, entry_idx: list[dict], csv_path: str) -> str:
     delta = mom_delta(iss, prev)
     delta_txt = "" if delta is None else f" ({delta:+,} vs {prev.ym})"
 
@@ -2373,6 +2421,7 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
   <div class="kpi"><div class="l">폐업률</div><div class="v">{iss.flagship.closure_rate:.1%}</div></div>
   <div class="kpi"><div class="l">서울 비중</div><div class="v">{iss.seoul_share:.0%}</div></div>
 </div>
+{download_bar(1, (csv_path, f"공유숙박_마켓리포트_{iss.ym}.csv", f"CSV는 이 호({iss.ym}) 카테고리·TOP10 요약,"))}
 
 <h2>전국 시도별 TOP 10</h2>
 <div class="scroll"><table><tr><th>#</th><th>시도</th><th style="text-align:right">영업중</th></tr>{sido_rows}</table></div>
@@ -2426,8 +2475,9 @@ def build() -> None:
 
     for i, iss in enumerate(d.all_issues):
         prev = d.all_issues[i + 1] if i + 1 < len(d.all_issues) else None
+        report_csv_path = write_report_csv(iss)
         (SITE / "report" / f"{iss.ym}.html").write_text(
-            render_report_detail(iss, prev, d.inbound, d.perf, d.demand, d.visitors, d.entry_index),
+            render_report_detail(iss, prev, d.inbound, d.perf, d.demand, d.visitors, d.entry_index, report_csv_path),
             encoding="utf-8")
 
     # 지역별 정적 페이지(pSEO) — 등록 20곳 이상인 시군구만. render_district_page의 상단
