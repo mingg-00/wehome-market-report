@@ -1168,7 +1168,8 @@ def sitemap_entries(issue_yms: list[str], current_ym: str) -> list[tuple[str, st
     """
     today = date.today().isoformat()
     entries = [(p, today) for p in
-               ("", "dashboard.html", "reports.html", "news.html", "competitors.html", "estimate.html")]
+               ("", "dashboard.html", "reports.html", "news.html", "competitors.html",
+                "estimate.html", "data-trust.html")]
     return entries + [(f"report/{ym}.html", today if ym == current_ym else f"{ym}-01")
                       for ym in issue_yms]
 
@@ -1300,11 +1301,16 @@ def write_og_image(iss: Issue) -> None:
     viz.plt.close(fig)
 
 
-FOOTER = """<footer>
-데이터: 행정안전부 지방행정 인허가 데이터(file.localdata.go.kr) 직접 수집,
-공공누리 제4유형(출처표시·상업적이용금지·변경금지) · 교차검증: 한국관광공사 세이프스테이<br>
-규제·정책 동향: 문화체육관광부·국회 공개 자료 자동 수집<br>
-자동 생성 — 위홈 마켓리포트
+def footer(depth: int) -> str:
+    """
+    개인정보처리방침 링크와 같은 자리·같은 패턴 — 출처·교차검증·K-STAY 데모 데이터
+    캐비엇처럼 매 페이지 하단에 통으로 박아두던 텍스트를 data-trust.html 한 곳으로
+    모으고 여긴 링크만 남긴다. 근거는 여전히 필요하지만 스크롤할 때마다 매번 읽을
+    내용은 아니라서 — 필요할 때만 클릭해서 본다.
+    """
+    p = "../" * depth
+    return f"""<footer>
+<a href="{p}data-trust.html">데이터 출처·신뢰도 안내</a> · 자동 생성 — 위홈 마켓리포트
 </footer>"""
 
 
@@ -1430,7 +1436,7 @@ def render_landing(d: SiteData) -> str:
   <div id="subMsg" class="formMsg"></div>
 </div>
 
-{FOOTER}
+{footer(0)}
 {SUBSCRIBE_FORM_JS}"""
     return page("숫자로 읽는 공유숙박 시장", "landing", 0, body,
                 "행정안전부 원본 데이터 기반 공유숙박 시장 월간 리포트. "
@@ -1555,13 +1561,7 @@ def render_dashboard(d: SiteData) -> str:
   <a class="wehomeCta" href="{wehome_cta_url('dashboard_banner')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
 </div>
 
-<h2>데이터 신뢰도</h2>
-<div class="note">{d.reconcile_note}</div>
-<div class="note warn">K-STAY의 /analysis 페이지에 있는 "Airbnb 리스팅 대비 미등록률" 수치는
-페이지 자체 표기대로 시뮬레이션된 데모용 샘플입니다. 이 사이트는 그 수치를 인용하지 않고
-행정안전부 원본 등록 데이터를 직접 받아 집계합니다(k-stay API 미사용).</div>
-
-{FOOTER}
+{footer(0)}
 <script>
 (function() {{
   const els = document.querySelectorAll('.reveal');
@@ -1669,8 +1669,43 @@ def render_reports_index(d: SiteData) -> str:
 <div class="sub">매월 발행. 지난 호는 계속 보관됩니다.</div>
 {search_box_html()}
 <div class="archive" style="margin-top:24px">{cards}</div>
-{FOOTER}"""
+{footer(0)}"""
     return page("월간 리포트", "reports", 0, body, "공유숙박 시장 월간 리포트 발행 이력.", path="reports.html")
+
+
+# ─────────────────────────────────────────────────────── 데이터 출처·신뢰도
+
+def render_data_trust(d: SiteData) -> str:
+    """
+    출처·교차검증·K-STAY 데모 데이터 캐비엇 — 예전엔 대시보드 하단에, 규제 출처는
+    모든 페이지 footer에 통으로 박혀 있던 텍스트를 여기 한 곳으로 모았다(개인정보
+    처리방침과 같은 자리·같은 패턴, footer()의 링크가 여기로 온다). d.reconcile_note는
+    이번 달 집계치가 들어가 매달 값이 바뀌므로 정적 텍스트가 아니라 빌드마다 새로
+    렌더링해야 한다 — 그래서 상수가 아니라 SiteData를 받는 함수다.
+    """
+    body = f"""
+<div class="kicker">DATA TRUST</div>
+<h1>데이터 출처·신뢰도</h1>
+<div class="sub">이 사이트가 어떤 데이터를 어디서 어떻게 모으고, 어떤 한계가 있는지 정리했습니다.</div>
+
+<h2>데이터 출처</h2>
+<div class="note">{DATA_PROVENANCE}. 라이선스: 공공누리 제4유형(출처표시·상업적이용금지·변경금지).</div>
+
+<h2>교차검증</h2>
+<div class="note">{d.reconcile_note}</div>
+
+<h2>알려진 제한사항</h2>
+<div class="note warn">K-STAY의 /analysis 페이지에 있는 "Airbnb 리스팅 대비 미등록률" 수치는
+페이지 자체 표기대로 시뮬레이션된 데모용 샘플입니다. 이 사이트는 그 수치를 인용하지 않고
+행정안전부 원본 등록 데이터를 직접 받아 집계합니다(k-stay API 미사용).</div>
+
+<h2>규제·정책 동향 출처</h2>
+<div class="note">문화체육관광부·국회 공개 자료 자동 수집.</div>
+
+{footer(0)}"""
+    return page("데이터 출처·신뢰도", "", 0, body,
+                "이 사이트의 데이터 출처, 세이프스테이 교차검증, 알려진 제한사항 안내.",
+                path="data-trust.html")
 
 
 # ─────────────────────────────────────────────────────── 뉴스 아카이브
@@ -1725,7 +1760,7 @@ def render_news(d: SiteData) -> str:
 규제·정책 키워드 매칭 여부.</div>
 {search_box_html()}
 <div class="newsgrid">{cols}</div>
-{FOOTER}"""
+{footer(0)}"""
     return page("뉴스", "news", 0, body,
                 f"공유숙박·숙박업 산업 뉴스 자동 수집 아카이브. {len(by_source)}개 소스, "
                 f"{len(d.news_items):,}건.", wide=True, path="news.html")
@@ -1767,7 +1802,7 @@ def render_competitors(d: SiteData) -> str:
 <div class="sub">위홈·에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 자동 수집 · 소스당 5건 표시,
 화살표를 누르면 해당 뉴스룸으로 이동.</div>
 <div class="compgrid">{cols}</div>
-{FOOTER}"""
+{footer(0)}"""
     return page("글로벌 OTA 뉴스룸", "competitors", 0, body,
                 "위홈·에어비앤비·아고다·부킹닷컴·클룩 공식 뉴스룸 보도자료 자동 수집.", wide=True,
                 path="competitors.html")
@@ -1997,7 +2032,7 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
 평균값입니다 — 이 사이트는 AirDNA 원본 데이터를 그들의 이용약관(크롤링·경쟁 서비스 제작 금지)상
 직접 끌어와 쓸 수 없어, 이미 공개 발행된 야놀자리서치 지표로 대신합니다.</div>
 
-{FOOTER}
+{footer(0)}
 <script>
 const LK_DATA = {data_json};
 const YNJ_DATA = {perf_json};
@@ -2400,7 +2435,7 @@ def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
 <div class="note warn">등록 밀도·증감률은 행정안전부 등록 건수 기반이라 실제 숙박요금·점유율을
 반영한 예상 수익이 아닙니다.{' 평균 객단가·객실 점유율·객실당매출은 실제 실적 지표이지만 개별 매물이 아닌 권역 평균값입니다.' if perf else ''}</div>
 
-{FOOTER}"""
+{footer(1)}"""
 
     description = (f"{sido} {sigungu} 외국인관광도시민박업 영업중 {r['active']:,}곳, 전국 {r['national_rank']}위. "
                     f"{d.current.ym} 기준 등록 밀도·증감률·진입 적합도 지수.")
@@ -2480,7 +2515,7 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
   <a class="wehomeCta" href="{wehome_cta_url('report_detail')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
 </div>
 
-{FOOTER}"""
+{footer(1)}"""
     return page(f"{iss.ym} 리포트", "reports", 1, body,
                 f"{iss.ym} 공유숙박 시장 리포트. 외도민업 영업중 {iss.flagship.active:,}곳.",
                 path=f"report/{iss.ym}.html", jsonld=report_ld(iss))
@@ -2503,6 +2538,7 @@ def build() -> None:
     (SITE / "reports.html").write_text(render_reports_index(d), encoding="utf-8")
     (SITE / "news.html").write_text(render_news(d), encoding="utf-8")
     (SITE / "competitors.html").write_text(render_competitors(d), encoding="utf-8")
+    (SITE / "data-trust.html").write_text(render_data_trust(d), encoding="utf-8")
     (SITE / "estimate.html").write_text(render_estimate(d, regions, csv_path), encoding="utf-8")
 
     for i, iss in enumerate(d.all_issues):
