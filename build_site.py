@@ -32,6 +32,7 @@ import json
 import math
 import os
 import re
+import shutil
 import statistics
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
@@ -992,6 +993,10 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 .pitch .ic{display:flex;align-items:center;justify-content:center;width:42px;height:42px;
  font-size:20px;line-height:1;margin-bottom:12px;background:var(--bg);
  border:1px solid var(--line);border-radius:10px}
+.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin:18px 0 28px}
+.formFig{margin:0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.formFig img{width:100%;height:auto;border-radius:8px;display:block;border:1px solid var(--line)}
+.formFig figcaption{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.5}
 .stepList{display:flex;flex-direction:column;gap:0;margin:22px 0}
 .step{display:flex;gap:16px;padding:16px 0}
 .step:not(:last-child){border-bottom:1px dashed var(--line)}
@@ -1833,6 +1838,19 @@ def render_guide(d: SiteData) -> str:
   임차면 임대차계약서 사본.</div></div>
   <div><div class="ic">📐</div><div class="t">시설 평면도·배치도</div><div class="d">객실 배치와 소방시설 위치가 보이게
   준비합니다.</div></div>
+</div>
+
+<div class="formGrid">
+  <figure class="formFig">
+    <img src="assets/guide/form_standard.jpg" alt="관광사업 등록신청서 서식(관광진흥법 시행규칙 별지 제1호서식) 원본" loading="lazy">
+    <figcaption>관광사업 등록신청서 원본 — 관광진흥법 시행규칙 별지 제1호서식(2024.11.7 개정).
+    출처: 국가법령정보센터.</figcaption>
+  </figure>
+  <figure class="formFig">
+    <img src="assets/guide/form_example.jpg" alt="관광사업 등록신청서 작성 예시 — 빨간 글씨로 각 칸에 무엇을 적어야 하는지 표시" loading="lazy">
+    <figcaption>작성 예시(빨간 글씨) — 성명·주소·상호(명칭)·업종(외국인관광 도시민박업)·주사업장
+    소재지·자본금·영업개시 연월일을 채우면 됩니다. 실제 제출 시엔 본인 정보로 바꿔서 작성하세요.</figcaption>
+  </figure>
 </div>
 
 <div class="kpis">
@@ -2750,6 +2768,12 @@ def build() -> None:
     (SITE / "reports.html").write_text(render_reports_index(d), encoding="utf-8")
     (SITE / "news.html").write_text(render_news(d), encoding="utf-8")
     (SITE / "competitors.html").write_text(render_competitors(d), encoding="utf-8")
+    # guide.html이 참조하는 실제 관광사업 등록신청서(별지 제1호서식) 이미지 — 국가법령정보센터
+    # 원문에서 떠서(assets/guide/) 정적으로 보관해둔 파일이라 매 빌드 새로 만들 필요는 없고
+    # 그대로 site/ 에 복사만 한다(법령이 개정돼 서식이 바뀌면 assets/guide/ 쪽을 교체).
+    (SITE / "assets" / "guide").mkdir(parents=True, exist_ok=True)
+    for f in (ASSETS / "guide").glob("*.jpg"):
+        shutil.copy(f, SITE / "assets" / "guide" / f.name)
     (SITE / "guide.html").write_text(render_guide(d), encoding="utf-8")
     (SITE / "data-trust.html").write_text(render_data_trust(d), encoding="utf-8")
     (SITE / "estimate.html").write_text(render_estimate(d, regions, csv_path), encoding="utf-8")
