@@ -74,6 +74,37 @@ def test_sitemap_lastmod_freezes_past_issues_but_not_the_current_one():
     assert entries[""] == today
 
 
+def test_regions_csv_is_excel_safe_and_blanks_unavailable_values():
+    """엑셀 한글 깨짐(BOM)과 '값 없음'을 0으로 채우지 않는 것 — 둘 다 눈으로는 안 보이는 자리다."""
+    import csv
+    import tempfile
+    from pathlib import Path
+    regions = [
+        {"sido": "서울특별시", "sigungu": "마포구", "active": 1933, "pause": 3, "closed": 637,
+         "recent6": 322, "growth_pct": 35, "tier": "대형", "trend": "성장",
+         "verdict_label": "경쟁 치열", "national_rank": 1, "sido_rank": 1,
+         "entry": {"index": 53, "ei_rank": 28}},
+        # 신규 진입 = 직전 6개월이 0이라 증감률이 없고, 표본이 작아 적합도 지수도 안 나온다
+        {"sido": "경상북도", "sigungu": "구미시", "active": 7, "pause": 0, "closed": 2,
+         "recent6": 9, "growth_pct": None, "tier": "소형", "trend": "신규 진입",
+         "verdict_label": "신규 진입 지역", "national_rank": 98, "sido_rank": 4, "entry": None},
+    ]
+    original = bs.SITE
+    with tempfile.TemporaryDirectory() as tmp:
+        bs.SITE = Path(tmp)
+        try:
+            raw = (bs.SITE / bs.write_regions_csv(regions, "2026-08")).read_bytes()
+        finally:
+            bs.SITE = original
+
+    assert raw.startswith(b"\xef\xbb\xbf")  # BOM 빠지면 윈도우 엑셀에서 한글이 전부 깨진다
+    rows = list(csv.reader(raw.decode("utf-8-sig").splitlines()))
+    assert rows[0][0] == "시도" and len(rows[0]) == 14
+    assert rows[1][:2] == ["서울특별시", "마포구"] and rows[1][12:] == ["53", "28"]
+    # 없는 값을 0으로 채우면 엑셀에선 "증감 0%", "지수 0점"으로 읽힌다 — 공란이어야 한다
+    assert rows[2][6] == "" and rows[2][12:] == ["", ""]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

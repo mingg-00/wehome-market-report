@@ -27,6 +27,7 @@ k-stay API 를 안 쓰게 되면서 잃은 것 하나: k-stay가 이미 발행�
 
 from __future__ import annotations
 
+import csv
 import json
 import math
 import os
@@ -1015,6 +1016,29 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  color:var(--fg);font-size:13.5px;line-height:1.4}
 .searchResultItem:hover{background:var(--bg)}
 .searchResultItem .srType{display:block;font-size:10.5px;color:var(--mint);font-weight:700;margin-bottom:2px}
+/* 판정 카드 바로 아래에 붙는 툴바 — 위 여백을 좁게 둬서 별도 섹션이 아니라
+   "방금 본 결과에 딸린 동작"으로 읽히게 한다 */
+.dlBar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 4px}
+.dlBtn{display:inline-block;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
+ background:var(--card);color:var(--fg);font:inherit;font-size:13px;font-weight:700;
+ text-decoration:none;cursor:pointer}
+.dlBtn:hover{border-color:var(--mint)}
+.dlNote{font-size:12px;color:var(--muted)}
+@media print{
+ /* OS가 다크모드면 인쇄물 배경이 통째로 검게 깔린다 — 인쇄는 항상 밝은 팔레트로 고정 */
+ :root{--bg:#fff;--fg:#161b22;--muted:#5b6472;--line:#e6e9ee;--card:#f7f9fb}
+ /* 배경색을 지우는 게 브라우저 인쇄 기본값이라, 그냥 두면 추이 막대·상태바·게이지가
+    전부 빈 칸으로 나온다(이 페이지에선 그게 데이터 자체다) */
+ *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+ /* 조회 UI·홍보·다운로드 버튼은 종이에서 누를 수 없다 */
+ nav,.dlBar,.searchBox,.subscribe,.ctaBanner,.lookup,#lkRankBox{display:none}
+ body{background:#fff}
+ .wrap{max-width:none;padding:0 4mm}
+ h1{font-size:26px}
+ h2{margin-top:22px;padding-top:0}
+ .verdictCard,.kpi,.billcard,.eiScore,.statusbar,.trendspark,footer{break-inside:avoid}
+ h2,h3{break-after:avoid}
+}
 """
 
 
@@ -1138,6 +1162,53 @@ def sitemap_entries(issue_yms: list[str], current_ym: str) -> list[tuple[str, st
                ("", "dashboard.html", "reports.html", "news.html", "competitors.html", "estimate.html")]
     return entries + [(f"report/{ym}.html", today if ym == current_ym else f"{ym}-01")
                       for ym in issue_yms]
+
+
+def write_regions_csv(regions: list[dict], ym: str) -> str:
+    """
+    전국 시군구 지표를 CSV 한 장으로. 지역마다 쪼갠 CSV를 68개 만들지 않는 이유:
+    한 지역만 담긴 CSV는 행이 하나뿐이라 정렬할 것도 비교할 것도 없다 — 표로
+    받는 이유가 곧 비교라서, 화면에서 못 하는 걸 해주는 건 전국 한 장 쪽이다.
+    DISTRICT_PAGE_MIN_ACTIVE로 거르지도 않는다(그 기준은 얇은 페이지를 색인시키지
+    않으려는 SEO 장치지 데이터 품질 기준이 아니다 — 표에선 작은 지역도 한 행이다).
+
+    encoding이 utf-8-sig인 건 필수다: BOM 없는 UTF-8 CSV를 윈도우 엑셀로 열면
+    한글이 통째로 깨진다(엑셀이 BOM이 없으면 로캘 코드페이지로 추정한다).
+    """
+    path = f"data/regions-{ym}.csv"
+    out = SITE / path
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["시도", "시군구", "영업중", "휴업", "폐업", "최근6개월신규등록",
+                    "직전6개월대비증감률(%)", "시장규모", "최근추세", "판정",
+                    "전국순위", "시도내순위", "진입적합도지수", "진입적합도순위"])
+        for r in regions:
+            e = r["entry"]
+            w.writerow([r["sido"], r["sigungu"], r["active"], r["pause"], r["closed"],
+                        r["recent6"],
+                        "" if r["growth_pct"] is None else r["growth_pct"],  # 신규 진입 = 증감률 없음
+                        r["tier"], r["trend"], r["verdict_label"],
+                        r["national_rank"], r["sido_rank"],
+                        e["index"] if e else "", e["ei_rank"] if e else ""])
+    return path
+
+
+def download_bar(csv_path: str, ym: str, depth: int) -> str:
+    """
+    CSV 내려받기 + PDF 저장 버튼.
+
+    PDF를 파일로 미리 굽지 않고 브라우저 인쇄(@media print)에 넘긴다 — 지역 68개 ×
+    매달치를 서버에서 렌더링하려면 PDF 엔진과 한글 폰트 임베딩이 새로 붙는데,
+    결과물은 사용자가 보고 있는 화면을 그대로 저장하는 것과 같다. 인쇄 대화상자의
+    "PDF로 저장"은 모든 OS에 이미 있다.
+    """
+    p = "../" * depth
+    return f"""<div class="dlBar">
+<a class="dlBtn" href="{p}{csv_path}" download="공유숙박_지역별지표_{ym}.csv">CSV 내려받기</a>
+<button class="dlBtn" type="button" onclick="window.print()">PDF로 저장</button>
+<span class="dlNote">CSV는 전국 시군구 전체({ym} 기준), PDF는 지금 보고 있는 화면입니다.</span>
+</div>"""
 
 
 def write_og_image(iss: Issue) -> None:
@@ -1705,7 +1776,7 @@ def compute_regions(d: SiteData) -> tuple[list[dict], dict[str, list[dict]]]:
     return regions, by_sido_group
 
 
-def render_estimate(d: SiteData, regions: list[dict]) -> str:
+def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
     """
     "지역을 고르면 예상 수익을 보여달라" 요청에 대한 응답 — 단 AirDNA류의
     "예상 수익(원/박)" 숫자를 우리가 만들어내진 않는다. 등록 밀도·증감률(자체 집계)에
@@ -1770,6 +1841,7 @@ def render_estimate(d: SiteData, regions: list[dict]) -> str:
       <div><div class="vsV" id="lkGrowth">-</div><div class="vsL">직전 6개월 대비</div></div>
     </div>
   </div>
+  {download_bar(csv_path, d.current.ym, 0)}
 
   <h2 style="margin-top:26px">진입 적합도 지수</h2>
   <div class="sub" style="margin:-4px 0 6px">등록 데이터(성장·생존·적합도)와 방문자수(수요)를 결합한
@@ -2101,7 +2173,7 @@ def district_slug(sido: str, sigungu: str) -> str:
 
 
 def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
-                          national_total: int, ei_total: int, ei_avg: int) -> str:
+                          national_total: int, ei_total: int, ei_avg: int, csv_path: str) -> str:
     """
     시군구 하나짜리 정적 페이지. 데이터는 전부 compute_regions()가 이미 계산해둔 r
     하나에서 나온다 — estimate.html의 인터랙티브 조회 결과와 같은 숫자를, 지역마다
@@ -2217,6 +2289,7 @@ def render_district_page(r: dict, d: SiteData, sido_group: list[dict],
 <div class="sub">{intro} {d.current.ym} 기준.</div>
 
 {verdict_card}
+{download_bar(csv_path, d.current.ym, 1)}
 {ei_html}
 
 <h2 style="margin-top:36px;padding-top:18px">영업 현황(등록 이력 전체 기준)</h2>
@@ -2337,13 +2410,14 @@ def build() -> None:
     (SITE / "area").mkdir(exist_ok=True)
 
     regions, by_sido_group = compute_regions(d)
+    csv_path = write_regions_csv(regions, d.current.ym)
 
     (SITE / "index.html").write_text(render_landing(d), encoding="utf-8")
     (SITE / "dashboard.html").write_text(render_dashboard(d), encoding="utf-8")
     (SITE / "reports.html").write_text(render_reports_index(d), encoding="utf-8")
     (SITE / "news.html").write_text(render_news(d), encoding="utf-8")
     (SITE / "competitors.html").write_text(render_competitors(d), encoding="utf-8")
-    (SITE / "estimate.html").write_text(render_estimate(d, regions), encoding="utf-8")
+    (SITE / "estimate.html").write_text(render_estimate(d, regions, csv_path), encoding="utf-8")
 
     for i, iss in enumerate(d.all_issues):
         prev = d.all_issues[i + 1] if i + 1 < len(d.all_issues) else None
@@ -2364,7 +2438,7 @@ def build() -> None:
         slug = district_slug(r["sido"], r["sigungu"])
         path = f"area/{slug}.html"
         (SITE / "area" / f"{slug}.html").write_text(
-            render_district_page(r, d, by_sido_group[r["sido"]], national_total, ei_total, ei_avg),
+            render_district_page(r, d, by_sido_group[r["sido"]], national_total, ei_total, ei_avg, csv_path),
             encoding="utf-8")
         district_pages.append((r, path))
 
