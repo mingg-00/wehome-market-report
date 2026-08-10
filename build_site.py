@@ -1918,24 +1918,21 @@ def render_guide(d: SiteData) -> str:
 신청 전 관할 구청 문화관광과 확인을 권장합니다.</div>
 <div class="pitch">
   <div><div class="ic">{gicon("house")}</div><div class="t">연면적 230㎡ 미만 주택</div>
-    <div class="d">단독·다가구·다세대·아파트·연립주택만 해당. 오피스텔·원룸형 주택은 등록 대상이
-    아닙니다(원룸형은 호스트가 함께 머물 공간이 없어 독채 숙박 구조가 되기 때문).</div></div>
+    <div class="d">단독·다가구·다세대·아파트·연립주택만 해당하며, 오피스텔·원룸형은
+    등록 대상이 아닙니다.</div></div>
   <div><div class="ic">{gicon("id")}</div><div class="t">신청인 실거주(전입신고 필수)</div>
-    <div class="d">호스트가 그 집에 실제로 살고 있어야 하고, 전입신고가 돼 있어야 합니다.
-    호스트가 상주해야 하는 구조라 독채 예약은 원칙적으로 불가능합니다.</div></div>
+    <div class="d">호스트가 실제 거주하며 전입신고가 돼 있어야 합니다.</div></div>
   <div><div class="ic">{gicon("speech")}</div><div class="t">외국어 안내 가능</div>
-    <div class="d">신청인 또는 동거 세대원이 외국어로 식사·가정문화 체험·생활 안내를 할 수
-    있어야 합니다.</div></div>
+    <div class="d">신청인 또는 동거 세대원이 외국어로 생활·문화 안내를 할 수 있어야
+    합니다.</div></div>
   <div><div class="ic">{gicon("extinguisher")}</div><div class="t">소방시설</div>
-    <div class="d">소화기 1개 이상, 객실마다 단독경보형감지기(화재경보기), 개별난방이면
-    일산화탄소경보기까지 설치해야 합니다.</div></div>
+    <div class="d">소화기 1개 이상, 객실마다 단독경보형감지기, 개별난방이면
+    일산화탄소경보기까지 설치합니다.</div></div>
   <div><div class="ic">{gicon("check")}</div><div class="t">30년 연한 요건은 폐지(2025.10.10)</div>
-    <div class="d">과거의 '사용승인 30년 이상' 요건은 없어졌습니다. 다만 노후 주택은 지자체가
-    별도 안전점검을 요구하는 사례가 있습니다(서울 중구청 등) — 오래된 주택이라면 관할 구청에
-    먼저 확인하는 게 안전합니다.</div></div>
+    <div class="d">과거의 '사용승인 30년 이상' 요건은 폐지됐습니다.</div></div>
   <div><div class="ic">{gicon("pin")}</div><div class="t">등록 문의처는 자치구</div>
-    <div class="d">전국 공통 제도지만 접수·심사는 관할 특별자치도·시·군·구(문화관광과)가
-    담당합니다. 온라인 일괄 신청 창구는 없고 방문 접수가 원칙입니다.</div></div>
+    <div class="d">접수·심사는 관할 시·군·구 문화관광과가 담당하며, 방문 접수가
+    원칙입니다.</div></div>
 </div>
 
 <h2>신청 절차</h2>
