@@ -2468,6 +2468,24 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
                  f"함께 보여드립니다({perf_ym[:4]}-{perf_ym[4:]} 기준, 광역 {len(d.perf)}개 권역)." if perf_ym else "")
     bills_block = bills_html(d.reg_bills)
 
+    # area/*.html은 지금까지 sitemap.xml·search-index.json으로만 존재를 알렸을 뿐, 정작
+    # 사이트 안 어떤 페이지도 이 URL들을 링크하지 않아 크롤러·방문자 모두 도달할 경로가
+    # 없었다(고아 페이지). area 페이지가 이 조회 도구의 정적 버전이라 여기서 전체
+    # 목록으로 되돌아 링크하는 게 가장 자연스럽다 — build()의 district_pages와 같은 조건
+    # (DISTRICT_PAGE_MIN_ACTIVE 이상)으로 걸러 실제로 존재하는 area 페이지만 링크한다.
+    area_groups: dict[str, list[dict]] = {}
+    for r in regions:
+        if r["active"] < DISTRICT_PAGE_MIN_ACTIVE or not r["sigungu"]:
+            continue
+        area_groups.setdefault(r["sido"], []).append(r)
+    area_count = sum(len(g) for g in area_groups.values())
+    area_links_html = "".join(
+        f'<div><div class="t">{sido} ({len(area_groups[sido])})</div><div class="d">'
+        + " · ".join(f'<a href="area/{district_slug(sido, r["sigungu"])}.html">{r["sigungu"]}</a>'
+                      for r in sorted(area_groups[sido], key=lambda r: -r["active"]))
+        + "</div></div>"
+        for sido in sidos if sido in area_groups)
+
     body = f"""
 <div class="kicker">HOST MARKET LOOKUP</div>
 <h1>지역별 시장 지표</h1>
@@ -2555,6 +2573,11 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
   <div class="mapwrap" id="lkMapWrap" style="display:none"></div>
   <div id="lkRankList" class="ranklist"></div>
 </div>
+
+<h2>지역별 정적 리포트 전체 보기</h2>
+<div class="h2sub">시도·시군구를 매번 고르지 않아도 URL로 바로 열 수 있는 페이지입니다 — 등록
+{DISTRICT_PAGE_MIN_ACTIVE}곳 이상인 {area_count}개 시군구만 제공합니다.</div>
+<div class="pitch">{area_links_html}</div>
 
 <!-- CTA는 lkResult 밖에 둔다 — 순위 블록 위에 놓으려고 lkResult 안에 넣으면, 시도만
      고른 탐색 단계에서 lkResult가 통째로 숨을 때 순위 블록까지 같이 사라진다. 대신
