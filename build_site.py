@@ -763,11 +763,29 @@ nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,
  align-items:center;justify-content:space-between;gap:16px}
 .brand{font-weight:800;letter-spacing:-.02em;font-size:15px;text-decoration:none}
 .brand span{color:var(--mint)}
-.navlinks{display:flex;gap:20px;font-size:13.5px;font-weight:600}
+.navRight{display:flex;align-items:center;gap:16px}
+.navlinks{display:flex;align-items:center;gap:20px;font-size:13.5px;font-weight:600}
 .navlinks a{text-decoration:none;color:var(--muted);white-space:nowrap}
 .navlinks a.active{color:var(--fg)}
+.navDropdown{position:relative}
+.navDropdown summary{cursor:pointer;list-style:none;color:var(--muted)}
+.navDropdown summary::-webkit-details-marker{display:none}
+.navDropdown summary::after{content:'▾';margin-left:3px;font-size:9px}
+.navDropdown summary.active{color:var(--fg)}
+.navDropdownMenu{position:absolute;top:calc(100% + 10px);left:0;background:var(--card);
+ border:1px solid var(--line);border-radius:10px;padding:6px;display:flex;flex-direction:column;
+ gap:2px;min-width:170px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:6}
+.navDropdownMenu a{padding:8px 10px;border-radius:8px;font-weight:600;color:var(--fg)}
+.navDropdownMenu a:hover{background:var(--bg)}
+.navDropdownMenu a.active{color:var(--mint)}
+.navSearch{position:relative;flex:none}
+.navSearch input{width:120px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);
+ background:var(--bg);color:var(--fg);font-size:12.5px;transition:width .15s}
+.navSearch input:focus{width:200px;outline:none;border-color:var(--mint)}
+.navSearch .searchResults{left:auto;right:0;width:320px;max-width:90vw}
 @media(max-width:680px){.navin{overflow-x:auto;-webkit-overflow-scrolling:touch}
- .brand{flex:none}.navlinks{flex:none}}
+ .brand{flex:none}.navlinks{flex:none}.navRight{flex:none}.navSearch input{width:90px}
+ .navSearch input:focus{width:150px}}
 .wrap{max-width:var(--maxw);margin:0 auto;padding:36px 20px 80px}
 .kicker{color:var(--mint);font-weight:800;letter-spacing:.14em;font-size:11.5px;text-transform:uppercase}
 h1{font-size:32px;line-height:1.22;margin:.35em 0 .15em;letter-spacing:-.02em}
@@ -1052,9 +1070,6 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
  padding:22px 24px;margin:24px 0;text-align:center}
 .ctaBanner .t{font-weight:750;font-size:16px}
 .ctaBanner .d{font-size:13.5px;color:var(--muted);margin-top:6px}
-.searchBox{position:relative;margin:20px 0}
-.searchBox input{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--line);
- background:var(--bg);color:var(--fg);font-size:14px}
 .searchResults{display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;
  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;
  max-height:360px;overflow-y:auto;z-index:5;box-shadow:0 8px 24px rgba(0,0,0,.15)}
@@ -1076,7 +1091,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
     전부 빈 칸으로 나온다(이 페이지에선 그게 데이터 자체다) */
  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
  /* 조회 UI·홍보·다운로드 버튼은 종이에서 누를 수 없다 */
- nav,.searchBox,.subscribe,.ctaBanner,.lookup,#lkRankBox,.pageHead .dlBtn{display:none}
+ nav,.subscribe,.ctaBanner,.lookup,#lkRankBox,.pageHead .dlBtn{display:none}
  /* 대시보드·리포트의 .reveal 요소는 스크롤로 화면에 들어와야 opacity:1이 된다(IntersectionObserver) —
     끝까지 안 스크롤한 채 인쇄하면 못 본 차트가 전부 빈 칸으로 찍힌다 */
  .reveal{opacity:1!important;transform:none!important}
@@ -1091,22 +1106,86 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 
 
 def nav(active: str, depth: int = 0) -> str:
+    """
+    모든 page()가 거쳐가는 유일한 헤더 렌더러라, 검색창을 여기 한 곳에 두면 그걸로
+    "전역 검색"이 완성된다(뉴스·리포트 페이지 본문에 따로 넣던 search_box_html()은
+    이제 중복이라 뺐다 — id="siteSearch" 충돌도 피할 겸). depth 0(루트)과 depth 1
+    (report/*.html, area/*.html)을 같은 nav()가 같이 렌더링하므로, search-index.json
+    fetch 경로와 결과 링크 둘 다 상대 depth(p)를 붙여야 한다 — 안 붙이면 area/ 안에서
+    "news.html"을 눌렀을 때 area/news.html(존재하지 않음)로 깨진다. 뉴스 항목만 예외로
+    원본 기사 URL(절대경로)이라 BASE를 안 붙인다.
+
+    뉴스·글로벌 OTA 뉴스룸은 top-level 7개 중 둘이 성격이 겹쳐(둘 다 "뉴스") 하나로
+    묶었다 — <details>/<summary>를 FAQ 아코디언과 같은 이유로 재사용한다(네이티브라
+    토글에 JS가 필요 없다). 바깥 클릭 시 닫히는 동작만 검색창과 같은 스크립트에서 얹는다.
+
+    순서는 데이터·도구 우선(대시보드→지역별 시장 지표→호스트 가이드), 그다음 자체
+    콘텐츠(월간 리포트)를 수집 콘텐츠(뉴스)보다 앞에 둔다. "홈"은 브랜드 로고가 이미
+    그 역할을 해 중복이라 목록에서 뺐다 — index.html에선 active="landing"이 어떤
+    링크와도 안 걸려 아무 항목도 강조되지 않는데, 로고 자체가 "지금 홈"이라 문제없다.
+    """
     p = "../" * depth
-    items = [("landing", "홈", f"{p}index.html"),
-             ("dashboard", "대시보드", f"{p}dashboard.html"),
+
+    def link(key: str, label: str, url: str) -> str:
+        return f'<a href="{url}" class="{"active" if key == active else ""}">{label}</a>'
+
+    items = [("dashboard", "대시보드", f"{p}dashboard.html"),
              ("estimate", "지역별 시장 지표", f"{p}estimate.html"),
              ("guide", "호스트 가이드", f"{p}guide.html"),
-             ("news", "뉴스", f"{p}news.html"),
-             ("competitors", "글로벌 OTA 뉴스룸", f"{p}competitors.html"),
              ("reports", "월간 리포트", f"{p}reports.html")]
-    links = "".join(
-        f'<a href="{url}" class="{"active" if key == active else ""}">{label}</a>'
-        for key, label, url in items
-    )
+    news_active = active in ("news", "competitors")
+    news_dropdown = f"""<details class="navDropdown">
+  <summary class="{"active" if news_active else ""}">뉴스</summary>
+  <div class="navDropdownMenu">
+    {link("news", "뉴스 아카이브", f"{p}news.html")}
+    {link("competitors", "글로벌 OTA 뉴스룸", f"{p}competitors.html")}
+  </div>
+</details>"""
+    links = "".join(link(*i) for i in items) + news_dropdown
     return f"""<nav><div class="navin">
 <a class="brand" href="{p}index.html">{TITLE} <span>·</span> WEHOST</a>
+<div class="navRight">
 <div class="navlinks">{links}</div>
-</div></nav>"""
+<div class="navSearch">
+  <input type="search" id="siteSearch" placeholder="검색" autocomplete="off" aria-label="사이트 검색">
+  <div id="siteSearchResults" class="searchResults"></div>
+</div>
+</div>
+</div></nav>
+<script>
+(function() {{
+  const BASE = '{p}';
+  let INDEX = null;
+  const input = document.getElementById('siteSearch');
+  const results = document.getElementById('siteSearchResults');
+  function hide() {{ results.style.display = 'none'; }}
+  document.addEventListener('click', e => {{
+    if (!e.target.closest('.navSearch')) hide();
+    document.querySelectorAll('.navDropdown[open]').forEach(d => {{
+      if (!d.contains(e.target)) d.removeAttribute('open');
+    }});
+  }});
+  input.addEventListener('keydown', e => {{ if (e.key === 'Escape') {{ input.blur(); hide(); }} }});
+  input.addEventListener('input', async () => {{
+    const q = input.value.trim().toLowerCase();
+    if (!q) {{ hide(); results.innerHTML = ''; return; }}
+    if (!INDEX) INDEX = await fetch(BASE + 'search-index.json').then(r => r.json());
+    const matches = INDEX.filter(it =>
+      it.title.toLowerCase().includes(q) || (it.source || '').toLowerCase().includes(q)
+    ).slice(0, 20);
+    results.innerHTML = matches.length
+      ? matches.map(it => {{
+          const abs = it.url.startsWith('http');
+          const href = abs ? it.url : BASE + it.url;
+          const ext = abs ? ' target="_blank" rel="noopener"' : '';
+          return `<a class="searchResultItem" href="${{href}}"${{ext}}>`
+               + `<span class="srType">${{it.source}}</span>${{it.title}}</a>`;
+        }}).join('')
+      : '<div class="sub" style="padding:10px 4px">검색 결과가 없습니다.</div>';
+    results.style.display = 'block';
+  }});
+}})();
+</script>"""
 
 
 def page(title: str, active: str, depth: int, body: str, description: str = "", wide: bool = False,
@@ -1717,39 +1796,6 @@ def render_dashboard(d: SiteData) -> str:
 
 # ─────────────────────────────────────────────────────── 리포트 아카이브
 
-def search_box_html() -> str:
-    """
-    뉴스+리포트 통합 검색 — build()가 만드는 site/search-index.json을 fetch해
-    클라이언트에서 필터링한다. 정적 사이트라 서버 검색엔진을 새로 두는 대신,
-    이 규모(수백 건)엔 클라이언트 필터링으로 충분하다고 판단. news.html·
-    reports.html 둘 다 depth 0(사이트 루트)라 상대경로 하나로 같이 쓴다.
-    """
-    return """
-<div class="searchBox">
-  <input type="search" id="siteSearch" placeholder="뉴스·리포트 검색…" autocomplete="off">
-  <div id="siteSearchResults" class="searchResults"></div>
-</div>
-<script>
-(function() {
-  let INDEX = null;
-  const input = document.getElementById('siteSearch');
-  const results = document.getElementById('siteSearchResults');
-  input.addEventListener('input', async () => {
-    const q = input.value.trim().toLowerCase();
-    if (!q) { results.style.display = 'none'; results.innerHTML = ''; return; }
-    if (!INDEX) INDEX = await fetch('search-index.json').then(r => r.json());
-    const matches = INDEX.filter(it =>
-      it.title.toLowerCase().includes(q) || (it.source || '').toLowerCase().includes(q)
-    ).slice(0, 20);
-    results.innerHTML = matches.length
-      ? matches.map(it => `<a class="searchResultItem" href="${it.url}" ${it.type === 'news' ? 'target="_blank" rel="noopener"' : ''}>
-          <span class="srType">${it.type === 'news' ? it.source : '월간 리포트'}</span>${it.title}</a>`).join('')
-      : '<div class="sub" style="padding:10px 4px">검색 결과가 없습니다.</div>';
-    results.style.display = 'block';
-  });
-})();
-</script>"""
-
 
 def render_reports_index(d: SiteData) -> str:
     cards = "".join(
@@ -1767,7 +1813,6 @@ def render_reports_index(d: SiteData) -> str:
   {download_buttons(0, (timeline_path, "공유숙박_발행호_시계열.csv"), pdf=False)}
 </div>
 <div class="sub">매월 발행. 지난 호는 계속 보관됩니다.</div>
-{search_box_html()}
 <div class="archive" style="margin-top:24px">{cards}</div>
 {footer(0)}"""
     return page("월간 리포트", "reports", 0, body, "공유숙박 시장 월간 리포트 발행 이력.", path="reports.html")
@@ -2297,7 +2342,6 @@ def render_news(d: SiteData) -> str:
 <div class="sub">산업 미디어 {len(by_source)}개 소스 자동 수집 · 소스당 5건 표시, 화살표를
 누르면 해당 사이트로 이동 · 전체 {len(d.news_items):,}건 수집됨. "공유숙박" 표시는
 규제·정책 키워드 매칭 여부.</div>
-{search_box_html()}
 <div class="newsgrid">{cols}</div>
 {footer(0)}"""
     return page("뉴스", "news", 0, body,
@@ -3153,9 +3197,10 @@ def build() -> None:
     else:
         print("  ⚠️ SITE_BASE_URL 미설정 — sitemap.xml/robots.txt 생성 생략")
 
-    # 사이트 내 검색(news.html·reports.html의 search_box_html())용 인덱스 — 뉴스는
-    # 원문 URL 그대로(새 탭으로 열림), 리포트는 ym을 제목·날짜 삼아 합성한다(개별
-    # 제목·날짜 필드가 없는 Issue라서).
+    # 사이트 내 검색(nav()의 전역 검색창)용 인덱스 — 뉴스는 원문 URL 그대로(새 탭으로
+    # 열림), 리포트는 ym을 제목·날짜 삼아 합성한다(개별 제목·날짜 필드가 없는 Issue라서).
+    # page·faq는 기사·리포트·지역처럼 매달 늘어나는 목록이 아니라 사이트 자체의 고정
+    # 목차라, "가이드"·"오피스텔" 같은 검색어로도 해당 페이지에 닿게 하려고 넣는다.
     search_index = [
         {"type": "news", "title": i.title, "url": i.url, "source": i.source, "date": i.date or ""}
         for i in d.news_items
@@ -3167,6 +3212,16 @@ def build() -> None:
         {"type": "district", "title": f"{r['sido']} {r['sigungu']}", "url": p,
          "source": "지역별 시장 지표", "date": d.current.ym}
         for r, p in district_pages
+    ] + [
+        {"type": "page", "title": title, "url": url, "source": "페이지", "date": ""}
+        for title, url in (
+            ("대시보드", "dashboard.html"), ("지역별 시장 지표", "estimate.html"),
+            ("호스트 가이드", "guide.html"), ("뉴스", "news.html"),
+            ("글로벌 OTA 뉴스룸", "competitors.html"), ("월간 리포트", "reports.html"),
+            ("데이터 출처·신뢰도", "data-trust.html"))
+    ] + [
+        {"type": "faq", "title": q, "url": f"guide.html#faq-{i}", "source": "자주 묻는 질문", "date": ""}
+        for i, (q, _) in enumerate(GUIDE_FAQ)
     ]
     (SITE / "search-index.json").write_text(json.dumps(search_index, ensure_ascii=False), encoding="utf-8")
 
