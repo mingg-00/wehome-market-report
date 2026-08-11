@@ -1017,6 +1017,13 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
 @media(prefers-color-scheme:dark){.stepNo{background:var(--mint);color:#04211c}}
 .step .t{font-weight:750;font-size:14.5px}
 .step .d{font-size:13.5px;color:var(--muted);margin-top:3px;line-height:1.6}
+.faq{margin:20px 0}
+.faq details{border-bottom:1px solid var(--line);padding:14px 0}
+.faq summary{cursor:pointer;font-weight:700;font-size:14.5px;list-style:none}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:'+';float:right;color:var(--mint);font-weight:800}
+.faq details[open] summary::after{content:'−'}
+.faq p{color:var(--muted);font-size:13.5px;line-height:1.7;margin:10px 0 0}
 .previewCard{background:var(--card);border:1px solid var(--line);border-radius:16px;
  padding:22px 24px;margin:22px 0}
 .previewCard .kpis{margin:16px 0 6px}
@@ -1190,6 +1197,21 @@ def report_ld(iss: Issue) -> dict | None:
         "author": {"@type": "Organization", "name": "위홈", "url": "https://www.wehome.me"},
         "publisher": {"@type": "Organization", "name": TITLE},
         "isAccessibleForFree": True,
+    }
+
+
+def faq_ld(items: list[tuple[str, str]]) -> dict | None:
+    """자주 묻는 질문 = FAQPage. 검색결과에 Q&A가 그대로 노출될 수 있는 몇 안 되는
+    구조화 데이터 타입이라, 답이 페이지 안 다른 텍스트와 겹치더라도 붙일 값어치가 있다."""
+    if not SITE_BASE_URL:
+        return None
+    return {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}}
+            for q, a in items
+        ],
     }
 
 
@@ -1913,6 +1935,42 @@ def gicon(name: str) -> str:
             f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{GUIDE_ICONS[name]}</svg>')
 
 
+# 등록 요건·서류·제약사항 등 본문 곳곳에 흩어져 있던 내용 중 검색 유입자가 실제로
+# 자주 묻는 질문 형태로 다시 물어볼 법한 것들만 모았다 — 본문 재설명이 아니라
+# "Q로 찾아 바로 답만 보는" 용도라 겹치는 내용도 그대로 둔다.
+GUIDE_FAQ: list[tuple[str, str]] = [
+    ("오피스텔이나 원룸도 등록할 수 있나요?",
+     "아니요. 등록 대상은 연면적 230㎡ 미만의 단독·다가구·다세대주택·아파트·연립주택뿐입니다. "
+     "오피스텔·원룸형 주택은 등록 대상이 아닙니다."),
+    ("자가 소유가 아니라 전세·월세로 살고 있어도 등록할 수 있나요?",
+     "가능합니다. 본인 소유면 등기부등본, 임차(전세·월세)면 임대차계약서 사본을 부동산 소유·"
+     "사용권 증명서류로 제출하면 됩니다. 다만 신청인이 실제 거주하며 전입신고가 돼 있어야 합니다."),
+    ("내국인 손님도 받을 수 있나요?",
+     "외도민업은 원칙적으로 외국인 관광객만 숙박할 수 있습니다. 위홈처럼 공유숙박 실증특례를 "
+     "받은 채널을 통하면 특례 범위(연 180일) 안에서 내국인 숙박도 합법적으로 받을 수 있습니다 "
+     "— 특례 없이 내국인을 받으면 불법입니다."),
+    ("등록 없이 에어비앤비 같은 데 올려서 운영해도 되나요?",
+     "안 됩니다. 관광사업 등록 없이 도시민박업을 운영하는 건 관광진흥법 위반으로 처벌 대상입니다. "
+     "등록 절차와 필요 서류는 위 §신청 절차·§필요 서류를 참고하세요."),
+    ("독채로 예약을 받을 수 있나요?",
+     "원칙적으로 어렵습니다. 외도민업은 호스트가 실제 거주하는 구조를 전제로 하기 때문에 "
+     "독채 예약은 원칙적으로 불가능합니다."),
+    ("농어촌민박이랑 뭐가 다른가요?",
+     "둘 다 살고 있는 주택을 활용한 민박이지만 대상 지역과 손님이 다릅니다. 농어촌민박은 "
+     "농어촌 지역이 대상이고 내국인도 받을 수 있는 반면, 외도민업(외국인관광 도시민박업)은 "
+     "도시지역이 대상이고 원칙적으로 외국인만 받을 수 있습니다."),
+    ("이 리포트로 예상 수익(월 얼마 버는지)을 알 수 있나요?",
+     "개별 매물 단위 예상 수익은 제공하지 않습니다. 행정안전부 등록 데이터 기반 등록 밀도·"
+     "증감률과, 야놀자리서치가 공개 발행한 권역 평균 객단가·점유율·객실당매출(RevPAR)만 "
+     "지역별 시장 지표에서 확인할 수 있습니다 — 실제 숙박요금·점유율을 반영한 개별 예상 "
+     "수익이 아닙니다."),
+    ("등록면허세·보험 같은 부대비용은 얼마나 드나요?",
+     "등록면허세는 지자체 조례별로 다르지만 통상 2만원대, 재난배상책임보험은 등록 후 30일 "
+     "내 가입해야 합니다(미가입 시 과태료). 부가가치세는 연매출 4,800만원 미만이면 납부 "
+     "의무가 면제됩니다. 자세한 내용은 위 §등록 이후 비용·세금을 참고하세요."),
+]
+
+
 def render_guide(d: SiteData) -> str:
     """
     "외도민업을 어떻게 시작하나요"에 대한 답 — 위홈 공식 안내(wehome.me/trust/ko/urbanstay)와
@@ -2024,6 +2082,23 @@ def render_guide(d: SiteData) -> str:
     <div class="d">서류 보완 시 더 걸릴 수 있음</div></div>
 </div>
 
+<h2>등록 이후 비용·세금</h2>
+<div class="h2sub">등록증을 받은 뒤에도 매년 반복되는 비용입니다 — 정확한 금액은 지자체 조례·매출 규모에
+따라 달라져 관할 세무서나 세무사 확인을 권합니다.</div>
+<div class="kpis">
+  <div class="kpi"><div class="l">등록면허세</div><div class="v">약 20,000원</div>
+    <div class="d">등록증 교부 후 납부, 지자체 조례별로 다를 수 있음</div></div>
+  <div class="kpi"><div class="l">재난배상책임보험</div><div class="v">등록 후 30일 내 가입</div>
+    <div class="d">미가입 시 과태료 최대 300만원(재난안전법 제76조의2)</div></div>
+  <div class="kpi"><div class="l">부가가치세</div><div class="v">연매출 4,800만원 미만 면제</div>
+    <div class="d">그 이상이면 과세유형에 따라 신고·납부</div></div>
+  <div class="kpi"><div class="l">종합소득세</div><div class="v">매년 5/1~5/31 신고</div>
+    <div class="d">숙박업 사업소득으로 합산 신고</div></div>
+</div>
+<div class="note">사업자등록은 관광사업 등록증(외도민업)을 받은 뒤 관할 세무서에서 무료로 발급받을
+수 있습니다. 실제 세액은 매출·경비·과세유형에 따라 달라지므로 국세청 홈택스나 세무사 상담으로
+확인하세요.</div>
+
 <h2>서울 25개 자치구 문의처</h2>
 <div class="h2sub">서울시 서울스테이 공식 안내(2024.04 기준) — 등록 접수·서식 문의는 이 부서로 바로
 연결됩니다.</div>
@@ -2094,6 +2169,20 @@ def render_guide(d: SiteData) -> str:
 대상이 아닙니다.</b> ③ 호스트가 상주해야 하는 구조라 <b>독채 예약은 원칙적으로
 불가능</b>합니다.</div>
 
+<h2>자주 묻는 질문</h2>
+<div class="faq">
+{"".join(f'<details id="faq-{i}"><summary>{q}</summary><p>{a}</p></details>' for i, (q, a) in enumerate(GUIDE_FAQ))}
+</div>
+<script>
+(function() {{
+  if (!location.hash.startsWith('#faq-')) return;
+  const el = document.querySelector(location.hash);
+  if (!el) return;
+  el.open = true;
+  el.scrollIntoView({{block: 'start'}});
+}})();
+</script>
+
 <div class="ctaBanner">
   <div class="t">관광사업 등록증을 받았다면</div>
   <div class="d">위홈 호스트로 등록해 공유숙박 특례를 신청하면, 서울·부산에서는 내국인
@@ -2118,7 +2207,7 @@ rel="noopener">위홈 공식 안내</a>와 문화체육관광부 「외국인관
 {footer(0)}"""
     return page("호스트 가이드", "guide", 0, body,
                 "외국인관광 도시민박업(외도민업) 등록 요건·신청 절차·필요 서류와 위홈 특례 "
-                "신청까지 정리한 호스트 시작 가이드.", path="guide.html")
+                "신청까지 정리한 호스트 시작 가이드.", path="guide.html", jsonld=faq_ld(GUIDE_FAQ))
 
 
 # ─────────────────────────────────────────────────────── 데이터 출처·신뢰도
