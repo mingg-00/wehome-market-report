@@ -2131,13 +2131,13 @@ def render_guide(d: SiteData) -> str:
 <div class="h2sub">등록증을 받은 뒤에도 매년 반복되는 비용입니다 — 정확한 금액은 지자체 조례·매출 규모에
 따라 달라져 관할 세무서나 세무사 확인을 권합니다.</div>
 <div class="kpis">
-  <div class="kpi"><div class="l">등록면허세</div><div class="v">약 20,000원</div>
+  <div class="kpi"><div class="l">등록면허세</div><div class="v" style="font-size:16px;white-space:normal;line-height:1.4">약 20,000원</div>
     <div class="d">등록증 교부 후 납부, 지자체 조례별로 다를 수 있음</div></div>
-  <div class="kpi"><div class="l">재난배상책임보험</div><div class="v">등록 후 30일 내 가입</div>
+  <div class="kpi"><div class="l">재난배상책임보험</div><div class="v" style="font-size:16px;white-space:normal;line-height:1.4">등록 후 30일 내 가입</div>
     <div class="d">미가입 시 과태료 최대 300만원(재난안전법 제76조의2)</div></div>
-  <div class="kpi"><div class="l">부가가치세</div><div class="v">연매출 4,800만원 미만 면제</div>
+  <div class="kpi"><div class="l">부가가치세</div><div class="v" style="font-size:16px;white-space:normal;line-height:1.4">연매출 4,800만원 미만 면제</div>
     <div class="d">그 이상이면 과세유형에 따라 신고·납부</div></div>
-  <div class="kpi"><div class="l">종합소득세</div><div class="v">매년 5/1~5/31 신고</div>
+  <div class="kpi"><div class="l">종합소득세</div><div class="v" style="font-size:16px;white-space:normal;line-height:1.4">매년 5/1~5/31 신고</div>
     <div class="d">숙박업 사업소득으로 합산 신고</div></div>
 </div>
 <div class="note">사업자등록은 관광사업 등록증(외도민업)을 받은 뒤 관할 세무서에서 무료로 발급받을
