@@ -2622,10 +2622,13 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
   <div id="lkRankList" class="ranklist"></div>
 </div>
 
+<!-- 일단 숨김 — 시도 선택 시 뜨는 지도를 더 돋보이게 하려고. 데이터·마크업은
+그대로 두었으니 다시 보이려면 이 주석만 풀면 된다.
 <h2>지역별 정적 리포트 전체 보기</h2>
 <div class="h2sub">시도·시군구를 매번 고르지 않아도 URL로 바로 열 수 있는 페이지입니다 — 등록
 {DISTRICT_PAGE_MIN_ACTIVE}곳 이상인 {area_count}개 시군구만 제공합니다.</div>
 <div class="pitch">{area_links_html}</div>
+-->
 
 <!-- CTA는 lkResult 밖에 둔다 — 순위 블록 위에 놓으려고 lkResult 안에 넣으면, 시도만
      고른 탐색 단계에서 lkResult가 통째로 숨을 때 순위 블록까지 같이 사라진다. 대신
