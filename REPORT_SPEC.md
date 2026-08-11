@@ -31,7 +31,7 @@ report/{ym}.html       호별 상세 — KPI 3종 + 구별TOP10표 + 카테고�
 | **포화 신호** (차별 지표) | 구별 최근 6개월 신규등록 vs 직전 6개월, 증감률 | 위와 동일(구별+월별 교차 집계) | 위와 동일 | `localdata.py::saturation_signal` |
 | 5종 카테고리 비교 | 카테고리별 active 합계 | 위와 동일, 5개 슬러그 병렬 수집 | 위와 동일 | `localdata.py::CATEGORIES` |
 | 폐업률 | closed / total | 위와 동일 | 위와 동일 | `CategoryStats.closure_rate` |
-| MoM 증감 | 이번 스냅샷 vs 직전 스냅샷 | 자체 축적(`history/*.json`) | 우리 실행 주기(월 1회 목표) | `build_site.py::mom_delta` |
+| MoM 증감 | 이번 스냅샷 vs 직전 스냅샷 | 자체 축적(`history/*.json`) | 우리 실행 주기(매일 05:00, launchd) | `build_site.py::mom_delta` |
 | 계류 법안(관광진흥법) | billName 부분일치 검색 | 국회 입법예고(`pal.assembly.go.kr`) | 매 실행 시 실시간 조회 | `regulation.py::fetch_assembly_bills` |
 | 규제·정책 뉴스 | 키워드 필터(`CORE_KEYWORDS`) | 문체부 보도자료·입법예고, 정책브리핑 | 매 실행 시 실시간 조회 | `regulation.py::collect` |
 | 인바운드 관광객 | K-STAY 큐레이션 그대로 사용 | KTO 데이터랩 + 법무부 통계연보 (k-stay가 손으로 큐레이션 — 자동 크롤링 대상 아님) | k-stay 갱신 주기에 종속 | `kstay.py::fetch_inbound` |

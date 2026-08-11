@@ -21,7 +21,7 @@ LOGFILE="$PROJECT_DIR/logs/publish_$(date +%Y%m%d_%H%M%S).log"
 
 {
   echo "=== $(date '+%Y-%m-%d %H:%M:%S') 발행 시작 ==="
-  # set -e라 테스트가 깨지면 여기서 멈춘다 — 매달 무인으로 도는 경로라, 깨진 코드가
+  # set -e라 테스트가 깨지면 여기서 멈춘다 — 매일 무인으로 도는 경로라, 깨진 코드가
   # 조용히 프로덕션까지 가는 걸 막는 유일한 관문이다. 파일별 __main__ 러너 대신
   # pytest로 한 번에 도는 이유는 러너가 빠진 파일이 생겨도 여기선 안 새기 때문.
   python3 -m pytest -q
