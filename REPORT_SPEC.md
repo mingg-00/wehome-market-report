@@ -47,7 +47,10 @@ report/{ym}.html       호별 상세 — KPI 3종 + 구별TOP10표 + 카테고�
 | 판정 로직 공개 | 비공개 | 비공개 | **공개**(active/closed/pause 분류 기준이 코드에 그대로) |
 | 규제 추적 | 없음 | 없음 | **국회 계류법안 자동 추적** |
 
-## 미착수 — 다음 체크포인트로 이월
+## 미착수
 
-- **예상 수익 지표** — 별도 문서 [`REVENUE_METRIC_SPEC.md`](REVENUE_METRIC_SPEC.md) 참고. 8/11 계획과 겹쳐 지금은 설계만.
-- 지역 검색 → 즉시 맞춤 리포트(8/11 계획 항목)
+- **예상 수익 지표(원/박 실거래 기반)** — 별도 문서 [`REVENUE_METRIC_SPEC.md`](REVENUE_METRIC_SPEC.md) 참고. ADR·점유율 실거래 데이터(위홈 예약 시스템)가 없어 막힘 — `WEHOME_INTERN_API_KEY`는 발급됐으나 호출할 엔드포인트 스펙이 없음.
+
+완료된 것(이월 아님):
+- 지역 검색 → 즉시 맞춤 리포트 — `estimate.html`(SPA 조회 도구), `area/*.html`(정적 68개 시군구 페이지)
+- 예상 수익의 정성적 절충안 — `build_site.py::compute_regions`의 `verdict()`(밀도×증감 조합 → "포화 주의"/"성장 기회" 등 라벨, 원 단위 금액 없음), `estimate.html`·`area/*.html`의 `verdictCard`로 노출
