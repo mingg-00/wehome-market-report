@@ -599,11 +599,13 @@ def chart_sido_rank(flagship: localdata.CategoryStats, top_n: int = 17) -> str:
 
 
 def chart_category_compare(categories: dict[str, localdata.CategoryStats]) -> str:
-    """5종 카테고리 규모 비교. 농어촌민박이 압도적으로 커서 로그스케일."""
+    """5종 카테고리 규모 비교. 농어촌민박이 압도적으로 커서 로그스케일. 민트 강조는
+    "이 대시보드에 전용 섹션이 더 있다"는 뜻이라 외도민업(flagship)·한옥체험업 둘 다
+    해당한다 — 다른 3종은 이 비교 차트에만 나온다."""
     items = [(categories[k].name_ko, categories[k].active) for k in CATEGORY_ORDER if k in categories]
     items.sort(key=lambda kv: kv[1])
     return _hbar_chart(items, "5종 공유숙박 카테고리 규모 비교 (영업중, 로그스케일)", log=True,
-                        mint=lambda label, i: label == "외국인관광도시민박업", label_w=168)
+                        mint=lambda label, i: label in ("외국인관광도시민박업", "한옥체험업"), label_w=168)
 
 
 def _bar_cell(value: float, max_value: float, fmt: str = "{:,.0f}", color: str = "var(--mint)") -> str:
@@ -930,6 +932,12 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .comprow .noimg{width:84px;height:84px;border-radius:10px;flex-shrink:0;background:var(--card);
  border:1px solid var(--line);display:flex;align-items:center;justify-content:center;
  font-size:15px;font-weight:800;color:var(--line)}
+.catToggle{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
+.catToggle .catBtn{padding:8px 16px;border-radius:999px;border:1px solid var(--line);
+ background:var(--card);color:var(--muted);font-weight:700;font-size:13.5px;cursor:pointer}
+.catToggle .catBtn.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+:root[data-theme="dark"] .catToggle .catBtn.active{background:var(--mint);color:#04211c}
+@media(prefers-color-scheme:dark){.catToggle .catBtn.active{background:var(--mint);color:#04211c}}
 .lookup{display:flex;gap:10px;margin:22px 0;flex-wrap:wrap}
 .lookup select{padding:11px 14px;border-radius:10px;border:1px solid var(--line);
  background:var(--bg);color:var(--fg);font-size:14px;min-width:160px}
@@ -1310,7 +1318,7 @@ def sitemap_entries(issue_yms: list[str], current_ym: str) -> list[tuple[str, st
                       for ym in issue_yms]
 
 
-def write_regions_csv(regions: list[dict], ym: str) -> str:
+def write_regions_csv(regions: list[dict], ym: str, category_slug: str = localdata.FLAGSHIP) -> str:
     """
     전국 시군구 지표를 CSV 한 장으로. 지역마다 쪼갠 CSV를 68개 만들지 않는 이유:
     한 지역만 담긴 CSV는 행이 하나뿐이라 정렬할 것도 비교할 것도 없다 — 표로
@@ -1320,8 +1328,12 @@ def write_regions_csv(regions: list[dict], ym: str) -> str:
 
     encoding이 utf-8-sig인 건 필수다: BOM 없는 UTF-8 CSV를 윈도우 엑셀로 열면
     한글이 통째로 깨진다(엑셀이 BOM이 없으면 로캘 코드페이지로 추정한다).
+
+    FLAGSHIP은 기존 경로(data/regions-{ym}.csv)를 그대로 유지한다 — 이미 내려받은
+    사람이 있을 수 있는 URL이라 안 바꾼다. 다른 카테고리만 파일명에 슬러그를 붙인다.
     """
-    path = f"data/regions-{ym}.csv"
+    path = (f"data/regions-{ym}.csv" if category_slug == localdata.FLAGSHIP
+            else f"data/regions-{ym}-{category_slug}.csv")
     out = SITE / path
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8-sig", newline="") as f:
@@ -1494,12 +1506,13 @@ document.getElementById('subForm').addEventListener('submit', async (e) => {{
   const email = document.getElementById('subEmail').value.trim();
   const consent = document.getElementById('subConsent').checked;
   const categories = [...document.querySelectorAll('.subCategory:checked')].map(el => el.value);
+  const frequency = document.querySelector('.subFrequency:checked')?.value;
   const msg = document.getElementById('subMsg');
   if (!consent) {{ msg.textContent = '수신 동의가 필요합니다.'; msg.className = 'formMsg err'; return; }}
   try {{
     const res = await fetch('{SUBSCRIBE_ENDPOINT}', {{
       method: 'POST', headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{email, consent, categories}})
+      body: JSON.stringify({{email, consent, categories, frequency}})
     }});
     const data = await res.json();
     if (res.ok) {{
@@ -1599,6 +1612,12 @@ def render_landing(d: SiteData) -> str:
   <div class="catpicker">
     {"".join(f'<label><input type="checkbox" class="subCategory" value="{k}" checked>{v}</label>'
              for k, v in subscribers.CATEGORIES.items())}
+  </div>
+  <div class="catpicker">
+    <span style="color:var(--muted)">수신 주기(시장 통계·리포트)</span>
+    {"".join(f'<label><input type="radio" name="subFrequency" class="subFrequency" value="{k}"'
+             f'{" checked" if k == "monthly" else ""}>{v}</label>'
+             for k, v in subscribers.FREQUENCIES.items())}
   </div>
   <label class="consent">
     <input type="checkbox" id="subConsent" required>
@@ -2423,16 +2442,30 @@ def render_competitors(d: SiteData) -> str:
 
 # ─────────────────────────────────────────────────────── 지역별 시장 지표
 
-def compute_regions(d: SiteData) -> tuple[list[dict], dict[str, list[dict]]]:
+# estimate.html 토글에 넣을 카테고리 — 5종 다 넣지 않는다. 농어촌민박은 근거법이 다르고
+# 규모가 압도적으로 커서(3만6천+) 별개 리포트급 작업이고, 관광숙박업/관광펜션업은 아직
+# 독자 수요를 확인 못 했다. 외도민업(주력)·한옥체험업(지리 분포가 정반대라 대비 자체가
+# 콘텐츠)만 우선 넣는다 — REPORT_SPEC.md의 P0 결정.
+ESTIMATE_CATEGORIES = [localdata.FLAGSHIP, "hanok_experience"]
+
+
+def compute_regions(d: SiteData, category_slug: str = localdata.FLAGSHIP) -> tuple[list[dict], dict[str, list[dict]], list[dict]]:
     """
     시군구 단위 지표 — estimate.html(SPA 조회 도구)과 area/*.html(지역별 정적 페이지,
     render_district_page) 양쪽이 쓰는 공통 계산. 등급(tier)·추세(trend)·판정(verdict)·
     전국/시도 순위·진입 적합도(entry)까지 여기서 다 붙여서 두 렌더러가 같은 걸 두 번
     계산하지 않게 한다.
 
+    category_slug 기본값은 FLAGSHIP(area/*.html은 여전히 이것만 쓴다 — P4 보류).
+    다른 카테고리를 넣으면 entry_index도 그 카테고리 기준으로 새로 계산한다
+    (localdata.entry_index의 flagship_slug가 이미 인자화돼 있어 재계산만 하면 된다).
+    반환하는 entry_idx는 FLAGSHIP일 땐 d.entry_index와 동일한 값이다 — 호출부가
+    이미 d.entry_index를 갖고 있으면 그냥 버려도 된다.
+
     ponytail: 성장/위축 경계값(±15%)과 규모 티어(사분위수)는 단순 임계값이다.
     """
-    regions = d.current.flagship.regional_stats()
+    category = d.current.categories[category_slug]
+    regions = category.regional_stats()
     q1, q2, q3 = statistics.quantiles(sorted(r["active"] for r in regions), n=4)
 
     def tier(active: int) -> str:
@@ -2491,18 +2524,24 @@ def compute_regions(d: SiteData) -> tuple[list[dict], dict[str, list[dict]]]:
         for r in group:
             r["sido_total"] = len(group)
 
-    # 진입 적합도 지수(localdata.entry_index, d.entry_index) — 대시보드 TOP10 표와 같은
-    # 원본을 여기 구 단위 조회에도 붙인다. min_active 미만·growth=inf·방문자수 매칭 없음 등
-    # 으로 지수 계산에서 빠진 구는 entry가 None — 0점으로 채우지 않고 "산정 불가"로 안내한다.
+    # 진입 적합도 지수(localdata.entry_index) — 대시보드 TOP10 표와 같은 원본을 여기 구
+    # 단위 조회에도 붙인다. min_active 미만·growth=inf·방문자수 매칭 없음 등으로 지수
+    # 계산에서 빠진 구는 entry가 None — 0점으로 채우지 않고 "산정 불가"로 안내한다.
+    # FLAGSHIP은 gather()가 이미 계산해둔 d.entry_index를 그대로 쓰고(중복 계산 방지),
+    # 다른 카테고리는 flagship_slug만 바꿔 새로 돌린다 — 원천 데이터는 이미 다 모여
+    # 있어(regional_stats/by_sigungu_status/by_sigungu) 네트워크 호출은 없다.
+    entry_idx = (d.entry_index if category_slug == localdata.FLAGSHIP else
+                 localdata.entry_index(d.current.categories, flagship_slug=category_slug,
+                                        visitors=d.visitors["district"] or None))
     entry_by_region = {f"{e['sido']} {e['sigungu']}": {**e, "ei_rank": i}
-                        for i, e in enumerate(d.entry_index, 1)}
+                        for i, e in enumerate(entry_idx, 1)}
     for r in regions:
         r["entry"] = entry_by_region.get(f"{r['sido']} {r['sigungu']}")
 
-    return regions, by_sido_group
+    return regions, by_sido_group, entry_idx
 
 
-def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
+def render_estimate(d: SiteData, cats: dict[str, dict]) -> str:
     """
     "지역을 고르면 예상 수익을 보여달라" 요청에 대한 응답 — 단 AirDNA류의
     "예상 수익(원/박)" 숫자를 우리가 만들어내진 않는다. 등록 밀도·증감률(자체 집계)에
@@ -2511,26 +2550,46 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
     10개 권역 단위라 시군구별로 나오지 않는다 — 선택한 시도가 매핑되는 권역이 있을
     때만 보여주고, 없으면 조용히 숨긴다(억지로 인접 권역 수치를 끼워 보여주지 않는다).
 
-    regions는 compute_regions(d)가 이미 계산해둔 것 — build()가 area/*.html과 공유하려고
-    한 번만 계산해 넘긴다.
-    """
-    national_total = len(regions)
-    ei_total = len(d.entry_index)
-    ei_avg = round(statistics.mean(e["index"] for e in d.entry_index)) if d.entry_index else 0
+    cats: {slug: {"regions": [...], "csv_path": "..."}} — ESTIMATE_CATEGORIES 순서대로,
+    build()가 compute_regions()를 카테고리마다 따로 돌려 넘긴다(area/*.html은 여전히
+    FLAGSHIP 것만 쓴다). 처음엔 외도민업 하나뿐이었는데, 한옥체험업 지리 분포가 정반대라
+    (대시보드 참고) 이 조회 도구에서도 비교하고 싶다는 요청으로 토글을 추가했다.
 
-    # 시군구 지도는 시도당 최대 240KB(전남광주통합, 섬 많은 해안선 탓)라 estimate.html에
-    # 그대로 박아 넣으면 페이지 전체가 그만큼 무거워진다 — 시도별 SVG 파일로 따로 써 두고
-    # 선택 시점에만 fetch()로 가져온다(대부분 사용자는 1~2개 시도만 조회한다).
-    district_maps = district_map.build_district_maps(regions)
-    maps_dir = SITE / "maps"
-    maps_dir.mkdir(parents=True, exist_ok=True)
-    for sido, svg in district_maps.items():
-        (maps_dir / f"{sido}.svg").write_text(svg, encoding="utf-8")
-    map_sidos_json = json.dumps(sorted(district_maps.keys()), ensure_ascii=False)
+    지도(district_map.build_district_maps)는 입력 regions에 실제로 등록이 있는
+    시군구만 "클릭 가능"으로 표시하고 나머지는 회색으로 그린다 — 카테고리마다 그
+    구분이 달라지므로(마포구는 외도민업 지도에선 진하고 한옥 지도에선 흐리다) 지도
+    파일도 maps/{{slug}}/{{시도}}.svg로 카테고리별로 따로 써야 한다. 한 세트만 만들어
+    돌려 쓰면 한옥 지도인데 외도민업 기준으로 색칠되는 식으로 틀린다.
+    """
+    cat_blocks = {}
+    for slug, bundle in cats.items():
+        regs = bundle["regions"]
+        entry_idx = bundle["entry_idx"]
+        district_maps = district_map.build_district_maps(regs)
+        maps_dir = SITE / "maps" / slug
+        maps_dir.mkdir(parents=True, exist_ok=True)
+        for sido, svg in district_maps.items():
+            (maps_dir / f"{sido}.svg").write_text(svg, encoding="utf-8")
+        cat_blocks[slug] = {
+            "label": localdata.CATEGORIES[slug],
+            "data": regs,
+            "nationalTotal": len(regs),
+            "eiTotal": len(entry_idx),
+            "eiAvg": round(statistics.mean(e["index"] for e in entry_idx)) if entry_idx else 0,
+            "mapSidos": sorted(district_maps.keys()),
+            "csvPath": bundle["csv_path"],
+        }
+    cats_json = json.dumps(cat_blocks, ensure_ascii=False)
+    default_slug = ESTIMATE_CATEGORIES[0]
+    regions = cats[default_slug]["regions"]  # 페이지 뼈대(초기 시도 옵션 등)는 기본 카테고리 기준
+    csv_path = cats[default_slug]["csv_path"]
+    cat_toggle_html = "".join(
+        f'<button type="button" class="catBtn{" active" if slug == default_slug else ""}" '
+        f'data-cat="{slug}">{localdata.CATEGORIES[slug]}</button>'
+        for slug in ESTIMATE_CATEGORIES)
 
     sidos = sorted({r["sido"] for r in regions})
     sido_options = "".join(f'<option value="{s}">{s}</option>' for s in sidos)
-    data_json = json.dumps(regions, ensure_ascii=False)
     perf_json = json.dumps(d.perf, ensure_ascii=False)
     perf_ym = next(iter(d.perf.values()))["ym"] if d.perf else None
     # 원래는 " · …도 함께 표시됩니다."를 첫 문장 중간에 이어 붙였다 — 값 설명 문장 하나에
@@ -2564,12 +2623,13 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
 <div class="kicker">HOST MARKET LOOKUP</div>
 <h1>지역별 시장 지표</h1>
 <div class="sub">시도·시군구를 선택하면 그 지역에 등록된 호스트 수, 최근 증감 추이, 진입 적합도를
-보여드립니다. 외국인관광 도시민박업(외도민업) 등록 기준입니다.{perf_note}</div>
+보여드립니다. 아래에서 업종을 고르세요 — 업종마다 등록 기준입니다.{perf_note}</div>
 
+<div class="catToggle" id="lkCatToggle">{cat_toggle_html}</div>
 <div class="lookup">
   <select id="lkSido"><option value="">시도 선택</option>{sido_options}</select>
   <select id="lkGu" disabled><option value="">시군구 선택</option></select>
-  <a class="dlBtn" href="{csv_path}" download="공유숙박_지역별지표_{d.current.ym}.csv">CSV 내려받기</a>
+  <a class="dlBtn" id="lkCsvBtn" href="{csv_path}" download="공유숙박_지역별지표_{d.current.ym}.csv">CSV 내려받기</a>
   <button class="dlBtn" id="lkPdfBtn" type="button" onclick="window.print()" disabled>PDF로 저장</button>
 </div>
 <div class="sub dlNote">CSV는 전국 시군구 전체({d.current.ym} 기준) · PDF는 지역을 선택하면 지금 화면 그대로 저장됩니다.</div>
@@ -2673,17 +2733,17 @@ def render_estimate(d: SiteData, regions: list[dict], csv_path: str) -> str:
 
 {footer(0)}
 <script>
-const LK_DATA = {data_json};
+const CATS = {cats_json};
+const CAT_ORDER = {json.dumps(ESTIMATE_CATEGORIES, ensure_ascii=False)};
+let activeCat = '{default_slug}';
+let cat = CATS[activeCat];
 const YNJ_DATA = {perf_json};
-const NATIONAL_TOTAL = {national_total};
-const EI_TOTAL = {ei_total};
-const EI_AVG = {ei_avg};
-const MAP_SIDOS = new Set({map_sidos_json});
 const sidoEl = document.getElementById('lkSido');
 const guEl = document.getElementById('lkGu');
 const result = document.getElementById('lkResult');
 const cta = document.getElementById('lkCta');
 const pdfBtn = document.getElementById('lkPdfBtn');
+const csvBtn = document.getElementById('lkCsvBtn');
 const empty = document.getElementById('lkEmpty');
 const perfBox = document.getElementById('lkPerf');
 const perfEmpty = document.getElementById('lkPerfEmpty');
@@ -2709,7 +2769,7 @@ function showPin(name) {{
     svg.insertAdjacentHTML('beforeend', PIN_SVG);
     pin = svg.querySelector('#lkPin');
   }}
-  const r = LK_DATA.find(x => x.sido === sidoEl.value && x.sigungu === name);
+  const r = cat.data.find(x => x.sido === sidoEl.value && x.sigungu === name);
   pin.querySelector('.pinbadgetext').textContent = r ? r.active.toLocaleString() + '곳' : '';
   // 배지가 핀 위로 76유닛 튀어나오고 좌우로 32유닛 벌어진다 — 지도 위쪽·가장자리
   // 시군구(도봉구 등)를 찍으면 그대로 잘려 나간다. 뷰박스 안에 들어오게 자리를 민다.
@@ -2739,14 +2799,40 @@ mapWrap.addEventListener('keydown', e => {{
   if (p) {{ e.preventDefault(); selectGu(p.dataset.name); }}
 }});
 
-sidoEl.addEventListener('change', () => {{
-  guEl.innerHTML = '<option value="">시군구 선택</option>';
+function populateSidoOptions() {{
+  const sidos = [...new Set(cat.data.map(r => r.sido))].sort();
+  sidoEl.innerHTML = '<option value="">시도 선택</option>' + sidos.map(s => `<option value="${{s}}">${{s}}</option>`).join('');
+}}
+
+function resetLookup() {{
+  guEl.innerHTML = '<option value="">시군구 선택</option>'; guEl.disabled = true;
   result.style.display = 'none'; cta.style.display = 'none'; empty.style.display = 'none'; pdfBtn.disabled = true;
   rankBox.style.display = 'none'; rankList.innerHTML = '';
   mapWrap.style.display = 'none'; mapWrap.innerHTML = '';
-  if (!sidoEl.value) {{ guEl.disabled = true; return; }}
+}}
+
+// 카테고리 토글 — sido 목록이 카테고리마다 다르다(예: 한옥은 등록이 없는 시도가 있을 수
+// 있다)라 시도 옵션 자체를 다시 그린다. 그 아래 결과·순위·지도는 전부 sido를 다시
+// 고를 때 채워지는 것들이라 sido를 비우고 resetLookup()만 하면 나머지는 자연히 빈다.
+document.querySelectorAll('#lkCatToggle .catBtn').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    if (btn.dataset.cat === activeCat) return;
+    activeCat = btn.dataset.cat;
+    cat = CATS[activeCat];
+    document.querySelectorAll('#lkCatToggle .catBtn').forEach(b => b.classList.toggle('active', b === btn));
+    csvBtn.href = cat.csvPath;
+    csvBtn.download = `공유숙박_지역별지표_${{cat.label}}_{d.current.ym}.csv`;
+    populateSidoOptions();
+    resetLookup();
+  }});
+}});
+
+sidoEl.addEventListener('change', () => {{
+  resetLookup();
+  if (!sidoEl.value) return;
   const selectedSido = sidoEl.value;
-  const group = LK_DATA.filter(r => r.sido === selectedSido).sort((a, b) => b.active - a.active);
+  const fetchCat = activeCat;
+  const group = cat.data.filter(r => r.sido === selectedSido).sort((a, b) => b.active - a.active);
   group.forEach(r => {{
     const opt = document.createElement('option');
     opt.value = r.sigungu;
@@ -2773,11 +2859,13 @@ sidoEl.addEventListener('change', () => {{
   }});
   rankBox.style.display = 'block';
 
-  if (MAP_SIDOS.has(selectedSido)) {{
-    fetch('maps/' + encodeURIComponent(selectedSido) + '.svg')
+  if (cat.mapSidos.includes(selectedSido)) {{
+    fetch('maps/' + activeCat + '/' + encodeURIComponent(selectedSido) + '.svg')
       .then(r => r.text())
       .then(svg => {{
-        if (sidoEl.value !== selectedSido) return; // 응답 오는 사이 다른 시도로 바뀌었으면 버림
+        // 응답 오는 사이 다른 시도로 바뀌었거나 카테고리를 토글했으면 버린다 — 안 그러면
+        // 한옥 지도로 fetch 걸어놓고 그새 외도민업으로 토글해도 응답이 늦게 와서 덮어쓴다.
+        if (sidoEl.value !== selectedSido || activeCat !== fetchCat) return;
         mapWrap.innerHTML = svg;
         mapWrap.style.display = 'block';
         if (guEl.value) {{ // 지도가 늦게 로드되는 사이 이미 시군구를 선택했을 수 있다
@@ -2791,7 +2879,7 @@ sidoEl.addEventListener('change', () => {{
 }});
 
 guEl.addEventListener('change', () => {{
-  const r = LK_DATA.find(x => x.sido === sidoEl.value && x.sigungu === guEl.value);
+  const r = cat.data.find(x => x.sido === sidoEl.value && x.sigungu === guEl.value);
   rankList.querySelectorAll('.rankrow').forEach(el => {{
     el.classList.toggle('sel', el.dataset.gu === guEl.value);
   }});
@@ -2809,7 +2897,7 @@ guEl.addEventListener('change', () => {{
   document.getElementById('lkVerdictCard').dataset.tone = r.verdict_tone;
   document.getElementById('lkRegionName').textContent = `${{r.sido}} ${{r.sigungu}}`;
   document.getElementById('lkRankBadge').textContent =
-    `전국 ${{r.national_rank}}위(${{NATIONAL_TOTAL.toLocaleString()}}곳 중) · ${{r.sido}} 내 ${{r.sido_rank}}위(${{r.sido_total}}곳 중)`;
+    `전국 ${{r.national_rank}}위(${{cat.nationalTotal.toLocaleString()}}곳 중) · ${{r.sido}} 내 ${{r.sido_rank}}위(${{r.sido_total}}곳 중)`;
   document.getElementById('lkVerdictBadge').textContent = r.verdict_label;
   document.getElementById('lkVerdict').textContent = r.verdict;
   document.getElementById('lkActive').textContent = r.active.toLocaleString() + '곳';
@@ -2826,13 +2914,13 @@ guEl.addEventListener('change', () => {{
   if (r.entry) {{
     document.getElementById('lkEiScore').textContent = r.entry.index;
     document.getElementById('lkEiRank').textContent =
-      `상위 ${{r.entry.ei_rank}}위 (지수 산정 가능 ${{EI_TOTAL.toLocaleString()}}곳 중)`;
+      `상위 ${{r.entry.ei_rank}}위 (지수 산정 가능 ${{cat.eiTotal.toLocaleString()}}곳 중)`;
     document.getElementById('lkEiGaugeMark').style.left = r.entry.index + '%';
-    document.getElementById('lkEiGaugeAvg').style.left = EI_AVG + '%';
-    const diff = r.entry.index - EI_AVG;
+    document.getElementById('lkEiGaugeAvg').style.left = cat.eiAvg + '%';
+    const diff = r.entry.index - cat.eiAvg;
     document.getElementById('lkEiCompare').textContent = diff === 0
-      ? `지수 산정 가능 지역 평균(${{EI_AVG}}점)과 같습니다.`
-      : `지수 산정 가능 지역 평균(${{EI_AVG}}점)보다 ${{Math.abs(diff)}}점 ${{diff > 0 ? '높습니다' : '낮습니다'}}.`;
+      ? `지수 산정 가능 지역 평균(${{cat.eiAvg}}점)과 같습니다.`
+      : `지수 산정 가능 지역 평균(${{cat.eiAvg}}점)보다 ${{Math.abs(diff)}}점 ${{diff > 0 ? '높습니다' : '낮습니다'}}.`;
     const axes = [['성장', r.entry.pct_growth], ['생존', r.entry.pct_survival], ['적합도', r.entry.pct_fit]];
     if (r.entry.pct_demand !== undefined) axes.push(['수요', r.entry.pct_demand]);
     document.getElementById('lkEiAxes').innerHTML = axes.map(([label, v]) => `
@@ -2901,11 +2989,11 @@ guEl.addEventListener('change', () => {{
 }});
 </script>"""
     return page("지역별 시장 지표", "estimate", 0, body,
-                "지역 선택 시 외도민업 등록 밀도·증감률과 야놀자리서치 평균 객단가·점유율·객실당매출 지표를 보여줍니다.",
+                "지역 선택 시 외도민업·한옥체험업 등록 밀도·증감률과 야놀자리서치 평균 객단가·점유율·객실당매출 지표를 보여줍니다.",
                 path="estimate.html",
                 jsonld=dataset_ld(
                     "지역별 공유숙박 시장 지표 — 전국 시군구",
-                    "전국 시군구별 외국인관광도시민박업 등록 밀도·증감률과 "
+                    "전국 시군구별 외국인관광도시민박업·한옥체험업 등록 밀도·증감률과 "
                     "권역별 평균 객단가·객실점유율·객실당매출(RevPAR). "
                     f"{DATA_PROVENANCE}, 야놀자리서치 교차검증.",
                     "estimate.html", d.current.ym))
@@ -3169,8 +3257,22 @@ def build() -> None:
     (SITE / "report").mkdir(exist_ok=True)
     (SITE / "area").mkdir(exist_ok=True)
 
-    regions, by_sido_group = compute_regions(d)
+    regions, by_sido_group, _ = compute_regions(d)  # FLAGSHIP — area/*.html은 이것만 쓴다(P4 보류)
     csv_path = write_regions_csv(regions, d.current.ym)
+
+    # estimate.html 토글용 — 카테고리별로 따로 계산한다(entry_index도 카테고리마다 다시
+    # 돈다). FLAGSHIP은 위에서 이미 계산한 걸 재사용해 중복 계산하지 않는다.
+    estimate_cats = {localdata.FLAGSHIP: {"regions": regions, "csv_path": csv_path}}
+    for slug in ESTIMATE_CATEGORIES:
+        if slug == localdata.FLAGSHIP:
+            continue
+        cat_regions, _, cat_entry_idx = compute_regions(d, slug)
+        estimate_cats[slug] = {
+            "regions": cat_regions,
+            "csv_path": write_regions_csv(cat_regions, d.current.ym, slug),
+            "entry_idx": cat_entry_idx,
+        }
+    estimate_cats[localdata.FLAGSHIP]["entry_idx"] = d.entry_index
 
     (SITE / "index.html").write_text(render_landing(d), encoding="utf-8")
     (SITE / "dashboard.html").write_text(render_dashboard(d), encoding="utf-8")
@@ -3185,7 +3287,7 @@ def build() -> None:
         shutil.copy(f, SITE / "assets" / "guide" / f.name)
     (SITE / "guide.html").write_text(render_guide(d), encoding="utf-8")
     (SITE / "data-trust.html").write_text(render_data_trust(d), encoding="utf-8")
-    (SITE / "estimate.html").write_text(render_estimate(d, regions, csv_path), encoding="utf-8")
+    (SITE / "estimate.html").write_text(render_estimate(d, estimate_cats), encoding="utf-8")
 
     for i, iss in enumerate(d.all_issues):
         prev = d.all_issues[i + 1] if i + 1 < len(d.all_issues) else None
