@@ -253,7 +253,7 @@ def _nice_ticks(vmax: float, count: int = 4) -> list[float]:
     return [round(step * i, 6) for i in range(n + 1)]
 
 
-def chart_registrations_trend(monthly: list[tuple[str, int]]) -> str:
+def chart_registrations_trend(monthly: list[tuple[str, int]], title: str | None = None) -> str:
     months, counts = zip(*monthly)
     n = len(counts)
     W, H = 720, 340
@@ -282,7 +282,8 @@ def chart_registrations_trend(monthly: list[tuple[str, int]]) -> str:
         for i, m in enumerate(months)
     )
     return (f'<svg class="chart" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="{SVG_FONT}">'
-            f'<text x="{ml}" y="20" font-size="14" font-weight="700" fill="var(--fg)">외국인관광 도시민박업 월별 신규등록 추이 (24개월)</text>'
+            f'<text x="{ml}" y="20" font-size="14" font-weight="700" fill="var(--fg)">'
+            f'{title or "외국인관광 도시민박업 월별 신규등록 추이 (24개월)"}</text>'
             f'{grid}{bars}{labels}</svg>')
 
 
@@ -413,9 +414,10 @@ def _hbar_chart(rows: list[tuple[str, int]], title: str, *, log: bool = False,
             f'{grid}{"".join(bars)}{"".join(labels)}{"".join(vlabels)}</svg>')
 
 
-def chart_district_rank(flagship: localdata.CategoryStats, sido: str = SEOUL, top_n: int = 15) -> str:
+def chart_district_rank(flagship: localdata.CategoryStats, sido: str = SEOUL, top_n: int = 15,
+                          title: str | None = None) -> str:
     top = flagship.district_rank(sido, top_n)[::-1]
-    return _hbar_chart(top, f"서울 자치구별 영업중 호스트 TOP {top_n}", label_w=54)
+    return _hbar_chart(top, title or f"서울 자치구별 영업중 호스트 TOP {top_n}", label_w=54)
 
 
 def chart_saturation_scatter(sat: list[tuple[str, int, int, float]]) -> str:
@@ -1642,6 +1644,15 @@ def render_dashboard(d: SiteData) -> str:
     top3 = c.flagship.district_rank(SEOUL, 3)
     top3_txt = "·".join(f"{gu} {cnt:,}" for gu, cnt in top3)
 
+    # 한옥체험업 — 외도민업(FLAGSHIP)은 서울 중심(63%)인데 한옥은 경북·전북·전남에
+    # 퍼져 있어 지리 분포가 정반대다. 그 대비 자체가 콘텐츠라 대시보드 보조 섹션으로
+    # 붙인다(별도 페이지·area 페이지는 안 만든다 — 20곳 이상 시군구가 21곳뿐이라
+    # 얇은 페이지가 될 위험, REPORT_SPEC.md 참고). CategoryStats가 이미 지역·월별로
+    # 자급자족이라 flagship용 차트 함수를 인자만 바꿔 그대로 재사용한다.
+    hanok = c.categories["hanok_experience"]
+    hanok_top_sido = hanok.sido_rank(1)
+    hanok_top_sido_name = hanok_top_sido[0][0] if hanok_top_sido else "-"
+
     sat = c.flagship.saturation_signal(SEOUL)[:8]
     sat_rows = "".join(
         f'<tr><td>{gu}</td><td class=n>{active:,}</td><td class=n>{recent}</td>'
@@ -1707,6 +1718,21 @@ def render_dashboard(d: SiteData) -> str:
 <h2>카테고리 비교</h2>
 <div class="h2sub">공유숙박 5종 등록 규모. 농어촌민박이 절대 우위지만 도시 시장은 별개 축.</div>
 <div class="reveal">{chart_category_compare(c.categories)}</div>
+
+<h2>한옥체험업</h2>
+<div class="h2sub">외도민업과 별개 축 — 서울 중심이 아니라 {hanok_top_sido_name} 등 지방에 밀집돼 있다.</div>
+<div class="kpis">
+  <div class="kpi reveal"><div class="l">영업중</div><div class="v" data-count>{hanok.active:,}</div></div>
+  <div class="kpi reveal"><div class="l">폐업률</div><div class="v" data-count>{hanok.closure_rate:.1%}</div>
+    <div class="d">누적 {hanok.total:,}건 중 {hanok.closed:,}건</div></div>
+  <div class="kpi reveal"><div class="l">1위 시도</div><div class="v">{hanok_top_sido_name}</div></div>
+</div>
+<div class="reveal">{chart_registrations_trend(hanok.recent_months(24), title="한옥체험업 월별 신규등록 추이 (24개월)")}</div>
+<div class="mapwrap reveal">{render_sido_map(hanok)}</div>
+<div class="reveal">{chart_sido_rank(hanok)}</div>
+<div class="sub" style="font-weight:700;margin:20px 0 6px">{hanok_top_sido_name} 시군구 순위</div>
+<div class="reveal">{chart_district_rank(hanok, hanok_top_sido_name, 10,
+    title=f"{hanok_top_sido_name} 시군구별 영업중 호스트 TOP 10")}</div>
 
 {demand_kpis_html(d.demand)}
 
