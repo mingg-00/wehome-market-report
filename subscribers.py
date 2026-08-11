@@ -29,10 +29,17 @@ DB_PATH = Path(
 )
 
 # 분야별 구독 선택지 — build_site.py의 구독 폼 체크박스가 이 딕셔너리를 그대로
-# 써서 렌더링한다(단일 소스, 폼과 저장 로직이 따로 놀지 않게). "market"은 8/7부터
-# 실제로 매주 발송되는 유일한 카테고리라(weekly_digest.py) 라벨에 주기를 명시한다 —
-# 그 전까진 이 카테고리가 저장만 되고 어떤 메일 발송에도 안 쓰였다(3종 다 마찬가지).
-CATEGORIES = {"policy": "정책·규제 동향", "market": "시장 통계·리포트(매주 발송)", "news": "업계 뉴스"}
+# 써서 렌더링한다(단일 소스, 폼과 저장 로직이 따로 놀지 않게). "market"이 실제로
+# 주기 발송되는 유일한 카테고리다(digest.py) — 발송 주기는 아래 FREQUENCIES에서
+# 구독자가 직접 고른다. policy·news는 저장만 되고 어떤 메일 발송에도 아직 안 쓰인다.
+CATEGORIES = {"policy": "정책·규제 동향", "market": "시장 통계·리포트", "news": "업계 뉴스"}
+
+# 8/11부터 "market" 구독자가 수신 주기를 직접 고른다 — 원본 등록 데이터는 월 단위로만
+# 갱신되니(build_site.py) monthly가 실제 데이터 갱신 주기와 가장 가깝고, 안 고르거나
+# 잘못된 값이 오면(add()) monthly로 떨어진다 — 매주 스팸처럼 느껴지는 쪽보다 덜 놀라운
+# 기본값. dict 순서가 그대로 구독 폼의 라디오 버튼 순서가 된다.
+FREQUENCIES = {"weekly": "매주", "biweekly": "2주마다", "monthly": "매달"}
+_INTERVAL_DAYS = {"weekly": 7, "biweekly": 14, "monthly": 30}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS subscribers (
@@ -41,7 +48,9 @@ CREATE TABLE IF NOT EXISTS subscribers (
     source TEXT NOT NULL,
     confirmed_at TEXT,
     unsubscribed_at TEXT,
-    categories TEXT
+    categories TEXT,
+    frequency TEXT,
+    last_sent_at TEXT
 )
 """
 
@@ -65,13 +74,22 @@ def _conn():
             # 분야별 선택 도입 전 가입자는 전체 수신으로 간주 — NULL을 "선택 없음(전체 수신)"
             # 으로 다루는 건 to_category_list()가 처리한다, 여기선 컬럼만 추가하면 된다.
             c.execute("ALTER TABLE subscribers ADD COLUMN categories TEXT")
+        if "frequency" not in cols:
+            # 주기 선택 도입 전 가입자는 기존에 실제로 약속했던 주기(매주 발송,
+            # DEPLOY.md 8/7 항목)를 그대로 유지한다 — 마이그레이션 한 번으로 조용히
+            # 발송 빈도가 줄면 안 된다.
+            c.execute("ALTER TABLE subscribers ADD COLUMN frequency TEXT")
+            c.execute("UPDATE subscribers SET frequency = 'weekly' WHERE unsubscribed_at IS NULL")
+        if "last_sent_at" not in cols:
+            c.execute("ALTER TABLE subscribers ADD COLUMN last_sent_at TEXT")
         yield c
         c.commit()
     finally:
         c.close()
 
 
-def add(email: str, source: str = "landing_page", categories: list[str] | None = None) -> str:
+def add(email: str, source: str = "landing_page", categories: list[str] | None = None,
+        frequency: str | None = None) -> str:
     """
     더블 옵트인 — 여기서 바로 활성 구독자가 되지 않는다. 반환값:
       "pending_confirm"            신규 등록(또는 미인증 상태에서 재요청) — 인증 메일 발송 필요
@@ -82,20 +100,25 @@ def add(email: str, source: str = "landing_page", categories: list[str] | None =
     categories: CATEGORIES 키 목록. None/빈 리스트/전부 모르는 키면 NULL로 저장되고
     "전체 수신"으로 취급한다(관심사를 안 좁힌 사람은 다 받는 게 기본값) — 알 수 없는
     키는 조용히 걸러낸다.
+
+    frequency: FREQUENCIES 키(weekly/biweekly/monthly). 모르는 값이거나 안 주면
+    monthly로 떨어진다 — 원본 데이터 갱신 주기와 가장 가깝고, 매주 스팸처럼
+    느껴지는 쪽보다 덜 놀라운 기본값.
     """
     cats = ",".join(k for k in (categories or []) if k in CATEGORIES) or None
+    freq = frequency if frequency in FREQUENCIES else "monthly"
     with _conn() as c:
         row = c.execute("SELECT confirmed_at, unsubscribed_at FROM subscribers WHERE email=?",
                          (email,)).fetchone()
         now = datetime.now().isoformat(timespec="seconds")
         if row is None:
-            c.execute("INSERT INTO subscribers(email, consented_at, source, categories) VALUES (?,?,?,?)",
-                      (email, now, source, cats))
+            c.execute("INSERT INTO subscribers(email, consented_at, source, categories, frequency) "
+                      "VALUES (?,?,?,?,?)", (email, now, source, cats, freq))
             return "pending_confirm"
         if row["unsubscribed_at"] is not None:
-            c.execute("UPDATE subscribers SET consented_at=?, source=?, categories=?, "
-                      "unsubscribed_at=NULL, confirmed_at=NULL WHERE email=?",
-                      (now, source, cats, email))
+            c.execute("UPDATE subscribers SET consented_at=?, source=?, categories=?, frequency=?, "
+                      "unsubscribed_at=NULL, confirmed_at=NULL, last_sent_at=NULL WHERE email=?",
+                      (now, source, cats, freq, email))
             return "resubscribe_pending_confirm"
         if row["confirmed_at"] is None:
             return "pending_confirm"
@@ -134,6 +157,39 @@ def active_subscribers(category: str | None = None) -> list[str]:
             return [r["email"] for r in rows]
         return [r["email"] for r in rows
                 if r["categories"] is None or category in r["categories"].split(",")]
+
+
+def due_for_digest(category: str, now: datetime | None = None) -> list[str]:
+    """category를 받는 활성 구독자 중, 각자 고른 frequency만큼 last_sent_at 이후
+    시간이 지난 사람만 골라 돌려준다. 한 번도 안 보낸 사람(last_sent_at NULL)은
+    무조건 대상 — 발송 여부는 호출부가 mark_sent()로 기록해야 다음 날에도
+    같은 사람이 계속 대상으로 잡히지 않는다."""
+    now = now or datetime.now()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT email, categories, frequency, last_sent_at FROM subscribers "
+            "WHERE confirmed_at IS NOT NULL AND unsubscribed_at IS NULL ORDER BY consented_at")
+        due = []
+        for r in rows:
+            if r["categories"] is not None and category not in r["categories"].split(","):
+                continue
+            if r["last_sent_at"] is not None:
+                days = _INTERVAL_DAYS.get(r["frequency"], _INTERVAL_DAYS["monthly"])
+                if (now - datetime.fromisoformat(r["last_sent_at"])).days < days:
+                    continue
+            due.append(r["email"])
+        return due
+
+
+def mark_sent(emails: list[str], when: datetime | None = None) -> None:
+    """due_for_digest()가 고른 사람들에게 실제로 보낸 뒤 호출 — 다음 조회부터
+    각자의 frequency만큼 다시 쉬게 한다."""
+    if not emails:
+        return
+    ts = (when or datetime.now()).isoformat(timespec="seconds")
+    with _conn() as c:
+        c.executemany("UPDATE subscribers SET last_sent_at=? WHERE email=?",
+                       [(ts, e) for e in emails])
 
 
 def pending() -> list[dict]:

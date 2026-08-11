@@ -120,15 +120,15 @@ def test_subscribe_already_active_skips_mail():
     assert "mail" not in body, "이미 활성 구독자한텐 메일을 다시 안 보낸다"
 
 
-def test_admin_send_weekly_digest_requires_token():
+def test_admin_send_digest_requires_token():
     _fresh_db()
-    assert _client().post("/admin/send-weekly-digest").status_code == 403
-    assert _client().post("/admin/send-weekly-digest?token=wrong").status_code == 403
+    assert _client().post("/admin/send-digest").status_code == 403
+    assert _client().post("/admin/send-digest?token=wrong").status_code == 403
 
 
-def test_admin_send_weekly_digest_only_targets_market_category(tmp_path=None):
+def test_admin_send_digest_only_targets_market_category(tmp_path=None):
     """로그인 없이 기존 구독 체크박스로 처리하기로 한 결정의 핵심 — "market"(시장
-    통계·리포트) 카테고리를 고른 사람만 주간 다이제스트를 받아야 한다."""
+    통계·리포트) 카테고리를 고른 사람만 다이제스트를 받아야 한다."""
     _fresh_db()
     original_secret = srv.UNSUB_SECRET
     original_latest = srv.LATEST_ISSUE
@@ -144,7 +144,7 @@ def test_admin_send_weekly_digest_only_targets_market_category(tmp_path=None):
             token = email_sender.confirm_token(email)
             c.get(f"/confirm?email={email}&token={token}")
 
-        r = c.post("/admin/send-weekly-digest?token=test-secret")
+        r = c.post("/admin/send-digest?token=test-secret")
         body = r.get_json()
         assert r.status_code == 200
         assert body["attempted"] == 1, "market이 아닌 news만 고른 b@example.com은 빠져야 한다"
@@ -155,19 +155,59 @@ def test_admin_send_weekly_digest_only_targets_market_category(tmp_path=None):
         fixture.unlink()
 
 
-def test_admin_send_weekly_digest_no_issue_yet_returns_zero():
+def test_admin_send_digest_skips_subscriber_not_due_yet():
+    """가입 시 monthly를 고른 사람은 방금 보냈으면 다음 날 다시 호출해도 또 안
+    받아야 한다 — due_for_digest()가 실제로 걸러지는지 API 레벨에서 확인."""
+    _fresh_db()
+    original_secret = srv.UNSUB_SECRET
+    original_latest = srv.LATEST_ISSUE
+    srv.UNSUB_SECRET = "test-secret"
+    fixture = Path(tempfile.mkstemp(suffix=".json")[1])
+    fixture.write_text(json.dumps({"ym": "2026-08", "active": 100, "seoul_share": 0.5,
+                                    "top_district": "마포구"}), encoding="utf-8")
+    srv.LATEST_ISSUE = fixture
+    try:
+        c = _client()
+        c.post("/subscribe", json={"email": "a@example.com", "consent": True,
+                                    "categories": ["market"], "frequency": "monthly"})
+        token = email_sender.confirm_token("a@example.com")
+        c.get(f"/confirm?email=a@example.com&token={token}")
+
+        r1 = c.post("/admin/send-digest?token=test-secret")
+        assert r1.get_json()["attempted"] == 1
+        sub.mark_sent(["a@example.com"])  # dry-run이라 서버가 직접 못 채우니 대신 채운다
+
+        r2 = c.post("/admin/send-digest?token=test-secret")
+        assert r2.get_json()["attempted"] == 0, "방금 보낸 monthly 구독자가 바로 다시 대상이면 안 된다"
+    finally:
+        srv.UNSUB_SECRET = original_secret
+        srv.LATEST_ISSUE = original_latest
+        fixture.unlink()
+
+
+def test_admin_send_digest_no_issue_yet_returns_zero():
     _fresh_db()
     original_secret = srv.UNSUB_SECRET
     original_latest = srv.LATEST_ISSUE
     srv.UNSUB_SECRET = "test-secret"
     srv.LATEST_ISSUE = Path("/nonexistent/latest_issue.json")
     try:
-        r = _client().post("/admin/send-weekly-digest?token=test-secret")
+        r = _client().post("/admin/send-digest?token=test-secret")
         body = r.get_json()
         assert body == {"sent": 0, "attempted": 0, "error": "아직 발행된 리포트가 없습니다."}
     finally:
         srv.UNSUB_SECRET = original_secret
         srv.LATEST_ISSUE = original_latest
+
+
+def test_subscribe_stores_chosen_frequency():
+    import sqlite3
+    _fresh_db()
+    _client().post("/subscribe", json={"email": "a@example.com", "consent": True,
+                                        "frequency": "biweekly"})
+    c = sqlite3.connect(sub.DB_PATH)
+    row = c.execute("SELECT frequency FROM subscribers WHERE email=?", ("a@example.com",)).fetchone()
+    assert row[0] == "biweekly"
 
 
 def test_latest_issue_fetches_from_deployed_site():

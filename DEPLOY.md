@@ -58,23 +58,27 @@ unreachable`로 죽는 걸 발견했다 — **Railway가 아웃바운드 SMTP(25
 5. 배포 URL을 `SUBSCRIBE_ENDPOINT`에 `/subscribe`를 붙여 `.env`(build_site.py가
    읽는 쪽)에 반영 → `build_site.py` 재실행 → Vercel 재배포.
 
-## 주간 통계 다이제스트 (8/7 추가)
+## 통계 다이제스트 — 구독자가 주기 선택 (8/7 추가, 8/11 주기 선택 추가)
 
-로그인 계정 시스템 대신 기존 구독 체크박스를 재사용한다 — "시장 통계·리포트(매주
-발송)" 체크박스(`subscribers.CATEGORIES`의 `"market"`)를 켠 사람에게 최신호 요약을
-매주 보낸다. `subscribers.db`가 Railway에만 있어서 발송도 거기서 일어나야 하고,
-로컬 launchd는 트리거만 한다:
+로그인 계정 시스템 대신 기존 구독 체크박스를 재사용한다 — "시장 통계·리포트"
+체크박스(`subscribers.CATEGORIES`의 `"market"`)를 켠 사람에게 최신호 요약을 보낸다.
+발송 주기는 가입 시 `subscribers.FREQUENCIES`(매주/2주마다/매달) 중 하나를 직접
+고른다. `subscribers.db`가 Railway에만 있어서 발송도 거기서 일어나야 하고, 로컬
+launchd는 트리거만 한다:
 
-1. `weekly_digest.sh`가 `POST {SUBSCRIBE_ENDPOINT 도메인}/admin/send-weekly-digest?token=$UNSUB_SECRET`
-   를 호출 — Railway의 `/admin/send-weekly-digest`가 실제 발송을 수행.
-2. `~/Library/LaunchAgents/me.wehome.marketreport.weeklydigest.plist`가 매주
-   월요일 08:00에 위 스크립트를 실행(publish.sh/월간 배포와 같은 launchd 패턴).
-3. 등록 원본 데이터는 월 단위로만 갱신되므로, "주간"이어도 최신 스냅샷을 그대로
-   다시 보내는 게 정상 동작이다(뉴스레터에 흔한 패턴).
+1. `digest.sh`가 `POST {SUBSCRIBE_ENDPOINT 도메인}/admin/send-digest?token=$UNSUB_SECRET`
+   를 호출 — Railway의 `/admin/send-digest`가 실제 발송을 수행. 사람마다 주기가
+   달라 "찬" 날짜도 제각각이라, 실제로 누구에게 보낼지는 `sub.due_for_digest()`가
+   매번 판단한다(각자의 `last_sent_at` + 고른 주기 기준).
+2. `~/Library/LaunchAgents/me.wehome.marketreport.digest.plist`가 매일 08:00에
+   위 스크립트를 실행(publish.sh/월간 배포와 같은 launchd 패턴, 트리거만 매일 돌고
+   실제 발송 여부는 서버가 사람별로 가른다).
+3. 등록 원본 데이터는 월 단위로만 갱신되므로, 그 사이엔 최신 스냅샷을 그대로 다시
+   보내는 게 정상 동작이다(뉴스레터에 흔한 패턴).
 
 수동 트리거 확인:
 ```bash
-bash weekly_digest.sh
+bash digest.sh
 ```
 
 ## Render (대안, 미사용)

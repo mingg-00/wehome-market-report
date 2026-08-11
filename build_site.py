@@ -1506,12 +1506,13 @@ document.getElementById('subForm').addEventListener('submit', async (e) => {{
   const email = document.getElementById('subEmail').value.trim();
   const consent = document.getElementById('subConsent').checked;
   const categories = [...document.querySelectorAll('.subCategory:checked')].map(el => el.value);
+  const frequency = document.querySelector('.subFrequency:checked')?.value;
   const msg = document.getElementById('subMsg');
   if (!consent) {{ msg.textContent = '수신 동의가 필요합니다.'; msg.className = 'formMsg err'; return; }}
   try {{
     const res = await fetch('{SUBSCRIBE_ENDPOINT}', {{
       method: 'POST', headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{email, consent, categories}})
+      body: JSON.stringify({{email, consent, categories, frequency}})
     }});
     const data = await res.json();
     if (res.ok) {{
@@ -1611,6 +1612,12 @@ def render_landing(d: SiteData) -> str:
   <div class="catpicker">
     {"".join(f'<label><input type="checkbox" class="subCategory" value="{k}" checked>{v}</label>'
              for k, v in subscribers.CATEGORIES.items())}
+  </div>
+  <div class="catpicker">
+    <span style="color:var(--muted)">수신 주기(시장 통계·리포트)</span>
+    {"".join(f'<label><input type="radio" name="subFrequency" class="subFrequency" value="{k}"'
+             f'{" checked" if k == "monthly" else ""}>{v}</label>'
+             for k, v in subscribers.FREQUENCIES.items())}
   </div>
   <label class="consent">
     <input type="checkbox" id="subConsent" required>

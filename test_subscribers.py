@@ -3,6 +3,7 @@
 
 import os
 import tempfile
+from datetime import datetime, timedelta
 
 import subscribers as sub
 
@@ -199,6 +200,84 @@ def test_delete_removes_row():
 def test_delete_nonexistent_returns_false():
     _fresh_db()
     assert sub.delete("nobody@example.com") is False
+
+
+def test_add_stores_chosen_frequency():
+    import sqlite3
+    _fresh_db()
+    sub.add("a@example.com", frequency="weekly")
+    c = sqlite3.connect(sub.DB_PATH)
+    row = c.execute("SELECT frequency FROM subscribers WHERE email=?", ("a@example.com",)).fetchone()
+    assert row[0] == "weekly"
+
+
+def test_add_unknown_frequency_falls_back_to_monthly():
+    import sqlite3
+    _fresh_db()
+    sub.add("a@example.com", frequency="daily")
+    c = sqlite3.connect(sub.DB_PATH)
+    row = c.execute("SELECT frequency FROM subscribers WHERE email=?", ("a@example.com",)).fetchone()
+    assert row[0] == "monthly"
+
+
+def test_migration_backfills_frequency_as_weekly_for_pre_existing_rows():
+    """주기 선택 도입 전 가입자는 그때 실제로 약속했던 매주 발송을 그대로 유지해야
+    한다 — 마이그레이션 한 번으로 조용히 발송 빈도가 줄면 안 된다."""
+    import sqlite3
+    path = _fresh_db()
+    c = sqlite3.connect(path)
+    c.execute("CREATE TABLE subscribers (email TEXT PRIMARY KEY, consented_at TEXT NOT NULL, "
+              "source TEXT NOT NULL, confirmed_at TEXT, unsubscribed_at TEXT, categories TEXT)")
+    c.execute("INSERT INTO subscribers(email, consented_at, source, confirmed_at) VALUES (?,?,?,?)",
+              ("old@example.com", "2026-01-01T00:00:00", "landing_page", "2026-01-01T00:00:00"))
+    c.commit()
+    c.close()
+
+    assert sub.due_for_digest("market") == ["old@example.com"]
+    c = sqlite3.connect(sub.DB_PATH)
+    row = c.execute("SELECT frequency FROM subscribers WHERE email=?", ("old@example.com",)).fetchone()
+    assert row[0] == "weekly"
+
+
+def test_due_for_digest_never_sent_is_due():
+    _fresh_db()
+    sub.add("a@example.com", categories=["market"], frequency="monthly")
+    sub.confirm("a@example.com")
+    assert sub.due_for_digest("market") == ["a@example.com"]
+
+
+def test_due_for_digest_excludes_other_categories():
+    _fresh_db()
+    sub.add("a@example.com", categories=["news"], frequency="weekly")
+    sub.confirm("a@example.com")
+    assert sub.due_for_digest("market") == []
+
+
+def test_due_for_digest_respects_frequency_interval():
+    _fresh_db()
+    sub.add("a@example.com", categories=["market"], frequency="weekly")
+    sub.confirm("a@example.com")
+    now = datetime(2026, 8, 10)
+    sub.mark_sent(["a@example.com"], when=now)
+    assert sub.due_for_digest("market", now=now + timedelta(days=3)) == [], "매주 주기는 3일 만에 다시 오면 안 된다"
+    assert sub.due_for_digest("market", now=now + timedelta(days=7)) == ["a@example.com"]
+
+
+def test_due_for_digest_different_subscribers_different_frequency():
+    _fresh_db()
+    sub.add("weekly@example.com", categories=["market"], frequency="weekly")
+    sub.confirm("weekly@example.com")
+    sub.add("monthly@example.com", categories=["market"], frequency="monthly")
+    sub.confirm("monthly@example.com")
+    now = datetime(2026, 8, 10)
+    sub.mark_sent(["weekly@example.com", "monthly@example.com"], when=now)
+    due = sub.due_for_digest("market", now=now + timedelta(days=10))
+    assert due == ["weekly@example.com"], "10일 뒤엔 매주 구독자만 다시 대상이어야 한다"
+
+
+def test_mark_sent_empty_list_is_noop():
+    _fresh_db()
+    sub.mark_sent([])  # 예외 없이 조용히 아무 일도 안 해야 한다
 
 
 if __name__ == "__main__":
