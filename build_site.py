@@ -1654,6 +1654,61 @@ def bills_html(reg_bills: dict[str, list[regulation.BillMatch]]) -> str:
 
 # ─────────────────────────────────────────────────────── 대시보드
 
+REVEAL_SCRIPT = """<script>
+(function() {
+  const els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    els.forEach(e => e.classList.add('in'));
+    return;
+  }
+  // KPI 숫자는 data-count 붙은 것만 카운트업한다 — 관광 수요 지표처럼 "1억 7,960만명" 같은
+  // 복합 단위 문자열은 앞자리 "1"만 숫자로 오인해 애니메이션이 이상해진다(실측 확인).
+  function animateCount(el) {
+    const raw = el.textContent.trim();
+    const m = raw.match(/^(-?[\\d,]+(?:\\.\\d+)?)(.*)$/);
+    if (!m) return;
+    const target = parseFloat(m[1].replace(/,/g, ''));
+    const suffix = m[2];
+    const decimals = (m[1].split('.')[1] || '').length;
+    const start = performance.now();
+    const dur = 900;
+    requestAnimationFrame(function frame(now) {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = Number((target * eased).toFixed(decimals));
+      el.textContent = val.toLocaleString(undefined,
+        {minimumFractionDigits: decimals, maximumFractionDigits: decimals}) + suffix;
+      if (t < 1) requestAnimationFrame(frame); else el.textContent = raw;
+    });
+  }
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add('in');
+      const num = entry.target.querySelector('.v[data-count]');
+      if (num) animateCount(num);
+      obs.unobserve(entry.target);
+    });
+  }, {threshold: .2});
+  els.forEach(e => obs.observe(e));
+  // 안전망: 백그라운드 탭으로 열려 있다가 포커스를 영영 안 받는 등, IntersectionObserver가
+  // 어떤 이유로든 끝내 안 터지면 콘텐츠가 opacity:0인 채 영원히 안 보이게 된다 — 애니메이션이
+  // 실패하는 것보다 콘텐츠가 아예 안 보이는 게 훨씬 나쁘다. 일정 시간 후 강제로 다 보여준다.
+  setTimeout(() => { els.forEach(e => e.classList.add('in')); }, 3000);
+})();
+(function() {
+  const tip = document.createElement('div');
+  tip.className = 'svgTip';
+  document.body.appendChild(tip);
+  document.querySelectorAll('[data-tip]').forEach(el => {
+    el.addEventListener('mouseenter', () => { tip.textContent = el.dataset.tip; tip.classList.add('show'); });
+    el.addEventListener('mousemove', (e) => { tip.style.left = e.clientX + 'px'; tip.style.top = (e.clientY - 10) + 'px'; });
+    el.addEventListener('mouseleave', () => tip.classList.remove('show'));
+  });
+})();
+</script>"""
+
+
 def render_dashboard(d: SiteData) -> str:
     c, p = d.current, d.previous
     delta = mom_delta(c, p)
@@ -1776,59 +1831,7 @@ def render_dashboard(d: SiteData) -> str:
 </div>
 
 {footer(0)}
-<script>
-(function() {{
-  const els = document.querySelectorAll('.reveal');
-  if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {{
-    els.forEach(e => e.classList.add('in'));
-    return;
-  }}
-  // KPI 숫자는 data-count 붙은 것만 카운트업한다 — 관광 수요 지표처럼 "1억 7,960만명" 같은
-  // 복합 단위 문자열은 앞자리 "1"만 숫자로 오인해 애니메이션이 이상해진다(실측 확인).
-  function animateCount(el) {{
-    const raw = el.textContent.trim();
-    const m = raw.match(/^(-?[\\d,]+(?:\\.\\d+)?)(.*)$/);
-    if (!m) return;
-    const target = parseFloat(m[1].replace(/,/g, ''));
-    const suffix = m[2];
-    const decimals = (m[1].split('.')[1] || '').length;
-    const start = performance.now();
-    const dur = 900;
-    requestAnimationFrame(function frame(now) {{
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      const val = Number((target * eased).toFixed(decimals));
-      el.textContent = val.toLocaleString(undefined,
-        {{minimumFractionDigits: decimals, maximumFractionDigits: decimals}}) + suffix;
-      if (t < 1) requestAnimationFrame(frame); else el.textContent = raw;
-    }});
-  }}
-  const obs = new IntersectionObserver((entries) => {{
-    entries.forEach(entry => {{
-      if (!entry.isIntersecting) return;
-      entry.target.classList.add('in');
-      const num = entry.target.querySelector('.v[data-count]');
-      if (num) animateCount(num);
-      obs.unobserve(entry.target);
-    }});
-  }}, {{threshold: .2}});
-  els.forEach(e => obs.observe(e));
-  // 안전망: 백그라운드 탭으로 열려 있다가 포커스를 영영 안 받는 등, IntersectionObserver가
-  // 어떤 이유로든 끝내 안 터지면 콘텐츠가 opacity:0인 채 영원히 안 보이게 된다 — 애니메이션이
-  // 실패하는 것보다 콘텐츠가 아예 안 보이는 게 훨씬 나쁘다. 일정 시간 후 강제로 다 보여준다.
-  setTimeout(() => {{ els.forEach(e => e.classList.add('in')); }}, 3000);
-}})();
-(function() {{
-  const tip = document.createElement('div');
-  tip.className = 'svgTip';
-  document.body.appendChild(tip);
-  document.querySelectorAll('[data-tip]').forEach(el => {{
-    el.addEventListener('mouseenter', () => {{ tip.textContent = el.dataset.tip; tip.classList.add('show'); }});
-    el.addEventListener('mousemove', (e) => {{ tip.style.left = e.clientX + 'px'; tip.style.top = (e.clientY - 10) + 'px'; }});
-    el.addEventListener('mouseleave', () => tip.classList.remove('show'));
-  }});
-}})();
-</script>"""
+{REVEAL_SCRIPT}"""
     return page("대시보드", "dashboard", 0, body,
                 f"외국인관광도시민박업 영업중 {c.flagship.active:,}곳, 서울 {c.seoul_share:.0%}. "
                 "행정안전부 공공데이터 기반 공유숙박 시장 대시보드.", path="dashboard.html",
@@ -3242,7 +3245,8 @@ def render_report_detail(iss: Issue, prev: Issue | None, inbound: dict, perf: di
   <a class="wehomeCta" href="{wehome_cta_url('report_detail')}" target="_blank" rel="noopener">위홈에 호스트로 등록하기 →</a>
 </div>
 
-{footer(1)}"""
+{footer(1)}
+{REVEAL_SCRIPT}"""
     return page(f"{iss.ym} 리포트", "reports", 1, body,
                 f"{iss.ym} 공유숙박 시장 리포트. 외도민업 영업중 {iss.flagship.active:,}곳.",
                 path=f"report/{iss.ym}.html", jsonld=report_ld(iss))
